@@ -1,0 +1,40 @@
+<configuration>
+    <!-- Console Appender -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+            <providers>
+                <timestamp />
+                <logLevel />
+                <message /> <!-- Includes the default message -->
+                <arguments /> <!-- Adds structured arguments -->
+            </providers>
+        </encoder>
+    </appender>
+
+    <!-- Rolling File Appender -->
+    <appender name="ROLLING_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/app.json</file> <!-- File location -->
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>logs/http-%d{yyyy-MM-dd}.json</fileNamePattern> <!-- Daily log rotation -->
+            <maxHistory>7</maxHistory> <!-- Retain logs for the last 7 days -->
+        </rollingPolicy>
+        <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+            <providers>
+                <timestamp />
+                <logLevel />
+                <loggerName />
+                <threadName />
+                <mdc />
+                <callerData />
+                <message /> <!-- Includes the default message -->
+                <arguments /> <!-- Adds structured arguments -->
+            </providers>
+        </encoder>
+    </appender>
+
+    <!-- Root Logger -->
+    <root level="info">
+        <appender-ref ref="CONSOLE" />
+        <appender-ref ref="ROLLING_FILE" />
+    </root>
+</configuration>
