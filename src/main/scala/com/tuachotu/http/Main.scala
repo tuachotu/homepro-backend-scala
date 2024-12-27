@@ -28,6 +28,7 @@ object Main extends App {
       )
       response.headers().set(HttpHeaderNames.CONTENT_TYPE, "text/plain")
       response.headers().set(HttpHeaderNames.CONTENT_LENGTH, content.readableBytes())
+      response.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN, "*")
       // TODO: Fix this method. It seems logging is not working
       // We have to use println
       //LoggerUtil.info("Route registered1111")

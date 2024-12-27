@@ -34,6 +34,7 @@ class HttpHandler extends ChannelInitializer[SocketChannel] {
               notFoundContent
             )
             response.headers().set(HttpHeaderNames.CONTENT_TYPE, HttpHeaderValues.APPLICATION_JSON)
+            response.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN, "*")
             response.headers().set(HttpHeaderNames.CONTENT_LENGTH, notFoundContent.readableBytes())
             ctx.writeAndFlush(response).addListener(io.netty.channel.ChannelFutureListener.CLOSE)
         }
