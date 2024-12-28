@@ -1,22 +1,21 @@
 package com.tuachotu.http
 
-// Core HTTP server and routing logic
-
 import com.tuachotu.http.core.{HttpServer, Route, RouteRegistry}
 import com.tuachotu.util.LoggerUtil
 import com.tuachotu.util.LoggerUtil.Logger
 
-// Netty HTTP utilities
 import io.netty.handler.codec.http.{DefaultFullHttpResponse, FullHttpRequest, HttpVersion, HttpResponseStatus, HttpHeaderNames, HttpMethod, HttpResponse}
-
-// Byte manipulation (optional, for response content)
 import io.netty.buffer.Unpooled
+import scala.util.CommandLineParser
 
-//object HomeProMain extends App {
+// Provide a given instance for Array[String]
+given CommandLineParser.FromString[Array[String]] with {
+  def fromString(s: String): Array[String] = s.split(",")
+}
 object HomeProMain {
   implicit private val logger: Logger = LoggerUtil.getLogger(getClass)
 
-  @main def main(): Unit = {
+  @main def main(args: Array[String]): Unit = {
     RouteRegistry.addRoute(new Route {
       override def path: String = "/hello"
 

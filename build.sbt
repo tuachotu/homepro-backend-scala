@@ -4,22 +4,35 @@ version := "0.1.0"
 
 scalaVersion := "3.5.0"
 
-// https://mvnrepository.com/artifact/io.netty/netty-all
-libraryDependencies += "io.netty" % "netty-all" % "4.1.113.Final"
+// Dependencies
+libraryDependencies ++= Seq(
+  // Netty
+  "io.netty" % "netty-all" % "4.1.113.Final",
 
-// logging
+  // Logging
+  "org.slf4j" % "slf4j-api" % "2.0.16",
+  "ch.qos.logback" % "logback-classic" % "1.5.12",
+  "net.logstash.logback" % "logstash-logback-encoder" % "8.0",
+  "com.typesafe" % "config" % "1.4.3"
+)
 
-// https://mvnrepository.com/artifact/org.slf4j/slf4j-api
-libraryDependencies += "org.slf4j" % "slf4j-api" % "2.0.16"
-// https://mvnrepository.com/artifact/ch.qos.logback/logback-classic
-libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.5.12"
-// https://mvnrepository.com/artifact/net.logstash.logback/logstash-logback-encoder
-libraryDependencies += "net.logstash.logback" % "logstash-logback-encoder" % "8.0"
-// https://mvnrepository.com/artifact/com.typesafe/config
-libraryDependencies += "com.typesafe" % "config" % "1.4.3"
+// Compiler options
+scalacOptions ++= Seq(
+  "-deprecation",
+  "-feature",
+  "-unchecked",
+  "-encoding", "utf8"
+)
 
+// Assembly settings
+assembly / mainClass := Some("com.tuachotu.http.HomeProMain")
 
-
-
-// Enable some compiler options
-scalacOptions ++= Seq("-deprecation", "-feature")
+// Merge strategy for assembly conflicts
+assembly / assemblyMergeStrategy := {
+  case PathList("META-INF", "MANIFEST.MF") => MergeStrategy.discard
+  case PathList("META-INF", _ @_*)        => MergeStrategy.discard
+  case PathList("reference.conf")         => MergeStrategy.concat
+  case PathList("application.conf")       => MergeStrategy.concat
+  case "logback.xml"                      => MergeStrategy.first
+  case x                                  => MergeStrategy.first
+}
