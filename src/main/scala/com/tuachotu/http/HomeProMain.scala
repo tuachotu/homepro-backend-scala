@@ -17,7 +17,7 @@ object HomeProMain {
 
   @main def main(args: Array[String]): Unit = {
     RouteRegistry.addRoute(new Route {
-      override def path: String = "/hello"
+      override def path: String = "/api/hello"
 
       override def method: HttpMethod = HttpMethod.GET
 
