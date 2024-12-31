@@ -30,7 +30,12 @@ assembly / mainClass := Some("com.tuachotu.http.HomeProMain")
 // Merge strategy for assembly conflicts
 assembly / assemblyMergeStrategy := {
   case PathList("META-INF", "MANIFEST.MF") => MergeStrategy.discard
-  case PathList("META-INF", _ @_*)        => MergeStrategy.discard
+  case PathList("META-INF", xs@_*) =>
+    (xs map {_.toLowerCase}) match {
+      case "services" :: xs =>
+        MergeStrategy.filterDistinctLines
+      case _ => MergeStrategy.discard
+    }
   case PathList("reference.conf")         => MergeStrategy.concat
   case PathList("application.conf")       => MergeStrategy.concat
   case "logback.xml"                      => MergeStrategy.first
