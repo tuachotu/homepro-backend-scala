@@ -13,7 +13,10 @@ libraryDependencies ++= Seq(
   "org.slf4j" % "slf4j-api" % "2.0.16",
   "ch.qos.logback" % "logback-classic" % "1.5.12",
   "net.logstash.logback" % "logstash-logback-encoder" % "8.0",
-  "com.typesafe" % "config" % "1.4.3"
+  "com.typesafe" % "config" % "1.4.3",
+  "com.google.firebase" % "firebase-admin" % "9.4.2"
+
+
 )
 
 // Compiler options

@@ -3,6 +3,7 @@ package com.tuachotu.http
 import com.tuachotu.http.core.{HttpServer, Route, RouteRegistry}
 import com.tuachotu.util.LoggerUtil
 import com.tuachotu.util.LoggerUtil.Logger
+import com.tuachotu.util.FirebaseAuthHandler
 
 import io.netty.handler.codec.http.{DefaultFullHttpResponse, FullHttpRequest, HttpVersion, HttpResponseStatus, HttpHeaderNames, HttpMethod, HttpResponse}
 import io.netty.buffer.Unpooled
@@ -22,20 +23,49 @@ object HomeProMain {
       override def method: HttpMethod = HttpMethod.GET
 
       override def handle(request: FullHttpRequest): DefaultFullHttpResponse = {
-        val content = Unpooled.copiedBuffer("Hello, World!".getBytes())
-        val response = new DefaultFullHttpResponse(
-          HttpVersion.HTTP_1_1,
-          HttpResponseStatus.OK,
-          content
-        )
-        response.headers().set(HttpHeaderNames.CONTENT_TYPE, "text/plain")
-        response.headers().set(HttpHeaderNames.CONTENT_LENGTH, content.readableBytes())
-        //response.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN, "*")
-        // TODO: Fix this method. It seems logging is not working
-        // We have to use println
-        //LoggerUtil.info("Route registered1111")
-        println(response.toString)
-        response
+        // Extract token from Authorization header
+        val authHeader = request.headers().get(HttpHeaderNames.AUTHORIZATION)
+        val token = Option(authHeader).filter(_.startsWith("Bearer ")).map(_.substring(7))
+        token match {
+          case Some(t) =>
+            FirebaseAuthHandler.validateToken(t) match {
+              case Right(claims) => // Authentication Passed
+                // Token is valid, process the request
+                val content = Unpooled.copiedBuffer("Hello, World!".getBytes())
+                val response = new DefaultFullHttpResponse(
+                  HttpVersion.HTTP_1_1,
+                  HttpResponseStatus.OK,
+                  content
+                )
+                response.headers().set(HttpHeaderNames.CONTENT_TYPE, "text/plain")
+                response.headers().set(HttpHeaderNames.CONTENT_LENGTH, content.readableBytes())
+                response
+
+              case Left(error) => // Authentication Failed
+                // Token is invalid, respond with 401
+                val content = Unpooled.copiedBuffer(error.getBytes())
+                val response = new DefaultFullHttpResponse(
+                  HttpVersion.HTTP_1_1,
+                  HttpResponseStatus.UNAUTHORIZED,
+                  content
+                )
+                response.headers().set(HttpHeaderNames.CONTENT_TYPE, "text/plain")
+                response.headers().set(HttpHeaderNames.CONTENT_LENGTH, content.readableBytes())
+                response
+            }
+
+          case None =>
+            // No token provided, respond with 401
+            val content = Unpooled.copiedBuffer("Missing Authorization header".getBytes())
+            val response = new DefaultFullHttpResponse(
+              HttpVersion.HTTP_1_1,
+              HttpResponseStatus.UNAUTHORIZED,
+              content
+            )
+            response.headers().set(HttpHeaderNames.CONTENT_TYPE, "text/plain")
+            response.headers().set(HttpHeaderNames.CONTENT_LENGTH, content.readableBytes())
+            response
+        }
       }
     })
     LoggerUtil.info("Route registered", "path", "/hello", "method", "GET")

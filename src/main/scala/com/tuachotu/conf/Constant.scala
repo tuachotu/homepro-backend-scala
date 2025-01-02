@@ -6,5 +6,7 @@ object Constant {
   val ServerShutdownComplete = "ServerShutdownComplete"
   val ServerStartFailed = "ServerStartFailed"
   val ServerStartupError = "ServerStartupError"
+  val RequestFireBaseAuthPassed = "RequestFireBaseAuthPassed"
+  val RequestFireBaseAuthFailed = "RequestFireBaseAuthFailed"
 
 }
