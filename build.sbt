@@ -14,9 +14,10 @@ libraryDependencies ++= Seq(
   "ch.qos.logback" % "logback-classic" % "1.5.12",
   "net.logstash.logback" % "logstash-logback-encoder" % "8.0",
   "com.typesafe" % "config" % "1.4.3",
-  "com.google.firebase" % "firebase-admin" % "9.4.2"
-
-
+  "com.google.firebase" % "firebase-admin" % "9.4.2",
+  "com.typesafe.slick" %% "slick" % "3.5.0",
+  "com.typesafe.slick" %% "slick-hikaricp" % "3.5.0",
+  "org.postgresql" % "postgresql" % "42.7.2"
 )
 
 // Compiler options
@@ -26,6 +27,8 @@ scalacOptions ++= Seq(
   "-unchecked",
   "-encoding", "utf8"
 )
+// Assembly settings
+Compile / run / mainClass := Some("com.tuachotu.http.HomeProMain")
 
 // Assembly settings
 assembly / mainClass := Some("com.tuachotu.http.HomeProMain")

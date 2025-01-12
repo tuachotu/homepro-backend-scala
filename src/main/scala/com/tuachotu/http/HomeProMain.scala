@@ -4,10 +4,16 @@ import com.tuachotu.http.core.{HttpServer, Route, RouteRegistry}
 import com.tuachotu.util.LoggerUtil
 import com.tuachotu.util.LoggerUtil.Logger
 import com.tuachotu.util.FirebaseAuthHandler
+import com.tuachotu.repository.UserRepository
 
 import io.netty.handler.codec.http.{DefaultFullHttpResponse, FullHttpRequest, HttpVersion, HttpResponseStatus, HttpHeaderNames, HttpMethod, HttpResponse}
 import io.netty.buffer.Unpooled
 import scala.util.CommandLineParser
+import scala.concurrent.{ExecutionContext, Future}
+import scala.util.{Failure, Success}
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.Await
+import scala.concurrent.duration._
 
 // Provide a given instance for Array[String]
 given CommandLineParser.FromString[Array[String]] with {
@@ -30,6 +36,14 @@ object HomeProMain {
           case Some(t) =>
             FirebaseAuthHandler.validateToken(t) match {
               case Right(claims) => // Authentication Passed
+                try {
+                  // Await result of findAll with a timeout of 10 seconds
+                  val users = Await.result(new UserRepository().findAll(), 10.seconds)
+                  println(users) // Print the list of users
+                } catch {
+                  case exception: Exception =>
+                    println(s"Error fetching users: ${exception.getMessage}")
+                }
                 // Token is valid, process the request
                 val content = Unpooled.copiedBuffer("Hello, World!".getBytes())
                 val response = new DefaultFullHttpResponse(
