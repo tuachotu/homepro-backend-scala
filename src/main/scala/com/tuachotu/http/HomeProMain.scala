@@ -10,7 +10,8 @@ import io.netty.handler.codec.http.{DefaultFullHttpResponse, FullHttpRequest, Ht
 import io.netty.buffer.Unpooled
 import scala.util.CommandLineParser
 import scala.concurrent.{ExecutionContext, Future}
-import scala.util.{Failure, Success}
+import scala.util.{Failure, Success, Try}
+
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Await
 import scala.concurrent.duration._
@@ -35,26 +36,34 @@ object HomeProMain {
         token match {
           case Some(t) =>
             FirebaseAuthHandler.validateToken(t) match {
-              case Right(claims) => // Authentication Passed
-                try {
-                  // Await result of findAll with a timeout of 10 seconds
-                  val users = Await.result(new UserRepository().findAll(), 10.seconds)
-                  println(users) // Print the list of users
-                } catch {
-                  case exception: Exception =>
-                    println(s"Error fetching users: ${exception.getMessage}")
+              // Token is valid, process the request
+              case Right(claims) =>
+                // Await result of findAll with a timeout of 10 seconds
+                Try {Await.result(new UserRepository().findAll(), 10.seconds)} match {
+                  case Success(users) =>
+                    val usersAsString = users.map(_.name).map(_.toString).mkString(",")
+                    LoggerUtil.info("UserCallSuccess", "users", usersAsString)
+                    val content = Unpooled.copiedBuffer(usersAsString.getBytes())
+                    val response = new DefaultFullHttpResponse(
+                      HttpVersion.HTTP_1_1,
+                      HttpResponseStatus.OK,
+                      content
+                    )
+                    response.headers().set(HttpHeaderNames.CONTENT_TYPE, "text/plain")
+                    response.headers().set(HttpHeaderNames.CONTENT_LENGTH, content.readableBytes())
+                    response
+                  case Failure(exception) =>
+                    // DB Read failed
+                    val content = Unpooled.copiedBuffer("cccc".getBytes())
+                    val response = new DefaultFullHttpResponse(
+                      HttpVersion.HTTP_1_1,
+                      HttpResponseStatus.UNAUTHORIZED,
+                      content
+                    )
+                    response.headers().set(HttpHeaderNames.CONTENT_TYPE, "text/plain")
+                    response.headers().set(HttpHeaderNames.CONTENT_LENGTH, content.readableBytes())
+                    response
                 }
-                // Token is valid, process the request
-                val content = Unpooled.copiedBuffer("Hello, World!".getBytes())
-                val response = new DefaultFullHttpResponse(
-                  HttpVersion.HTTP_1_1,
-                  HttpResponseStatus.OK,
-                  content
-                )
-                response.headers().set(HttpHeaderNames.CONTENT_TYPE, "text/plain")
-                response.headers().set(HttpHeaderNames.CONTENT_LENGTH, content.readableBytes())
-                response
-
               case Left(error) => // Authentication Failed
                 // Token is invalid, respond with 401
                 val content = Unpooled.copiedBuffer(error.getBytes())
