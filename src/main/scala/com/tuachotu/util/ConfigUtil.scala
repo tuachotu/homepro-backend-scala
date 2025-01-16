@@ -2,7 +2,7 @@ package com.tuachotu.util
 import com.typesafe.config.{Config, ConfigFactory}
 
 object ConfigUtil {
-  private val config: Config = ConfigFactory.load() // Automatically loads `reference.conf`
+  private val config: Config = ConfigFactory.load() // Automatically loads `application.conf`
 
   /** Get a string value from the config */
   def getString(path: String, default: String = ""): String =
@@ -19,4 +19,12 @@ object ConfigUtil {
   /** Get a nested configuration object */
   def getConfig(path: String): Config =
     config.getConfig(path)
+
+  def getBlockAsString(path: String): String = {
+    if (config.hasPath(path)) {
+      config.getConfig(path).root().render()
+    } else {
+      throw new IllegalArgumentException(s"Path '$path' not found in the configuration")
+    }
+  }
 }

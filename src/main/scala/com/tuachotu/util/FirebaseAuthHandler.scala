@@ -10,12 +10,14 @@ import java.io.FileInputStream
 import scala.jdk.CollectionConverters.*
 import com.tuachotu.util.LoggerUtil
 import com.tuachotu.util.LoggerUtil.Logger
+import com.tuachotu.util.ConfigUtil
 
 
 object FirebaseAuthHandler {
   implicit private val logger: Logger = LoggerUtil.getLogger(classOf[FirebaseAuthHandler.type])
-  val serviceAccount = new FileInputStream("/home/ec2-user/data/home-owners-tech-firebase-adminsdk-3jzg4-dea89a3125.json")
-  //val serviceAccount = new FileInputStream("/Users/vikrantsingh/Downloads/home-owners-tech-firebase-adminsdk-3jzg4-dea89a3125.json")
+  
+  //val serviceAccount = new FileInputStream("/home/ec2-user/data/home-owners-tech-firebase-adminsdk-3jzg4-dea89a3125.json")
+  val serviceAccount = new FileInputStream(ConfigUtil.getString("firebase.auth.config-path"))
 
   val options = FirebaseOptions.builder()
     .setCredentials(GoogleCredentials.fromStream(serviceAccount))
