@@ -19,6 +19,10 @@ class UserRepository(implicit ec: ExecutionContext) {
     DatabaseConnection.db.run(users.filter(_.id === id).result.headOption)
   }
 
+  def findByFirebaseId(id: String): Future[Option[User]] = {
+    DatabaseConnection.db.run(users.filter(_.firebaseUid === Some(id)).result.headOption)
+  }
+
   def create(user: User): Future[Int] = {
     DatabaseConnection.db.run(users += user)
   }

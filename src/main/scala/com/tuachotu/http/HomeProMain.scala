@@ -4,11 +4,13 @@ import com.tuachotu.http.core.{HttpServer, Route, RouteRegistry}
 import com.tuachotu.util.LoggerUtil
 import com.tuachotu.util.LoggerUtil.Logger
 import com.tuachotu.util.FirebaseAuthHandler
+import com.tuachotu.service.UserService
 import com.tuachotu.repository.UserRepository
 
 import io.netty.handler.codec.http.{DefaultFullHttpResponse, FullHttpRequest, HttpVersion, HttpResponseStatus, HttpHeaderNames, HttpMethod, HttpResponse}
 import io.netty.buffer.Unpooled
 import scala.util.CommandLineParser
+import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success, Try}
 
@@ -24,6 +26,9 @@ object HomeProMain {
   implicit private val logger: Logger = LoggerUtil.getLogger(getClass)
 
   @main def main(args: Array[String]): Unit = {
+    val userRepository = new UserRepository()
+    val userService = new UserService(userRepository)
+
     RouteRegistry.addRoute(new Route {
       override def path: String = "/api/hello"
 
@@ -39,7 +44,9 @@ object HomeProMain {
               // Token is valid, process the request
               case Right(claims) =>
                 // Await result of findAll with a timeout of 10 seconds
-                Try {Await.result(new UserRepository().findAll(), 10.seconds)} match {
+                println(claims.toString())
+                println(claims.get("uid"))
+                Try {Await.result(userService.findByFirebaseId(claims.getOrElse("user_id","").asInstanceOf[String]), 10.seconds)} match {
                   case Success(users) =>
                     val usersAsString = users.map(_.name).map(_.toString).mkString(",")
                     LoggerUtil.info("UserCallSuccess", "users", usersAsString)
