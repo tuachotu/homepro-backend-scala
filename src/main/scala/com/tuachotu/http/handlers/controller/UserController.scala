@@ -4,8 +4,8 @@ import com.tuachotu.http.core.{HttpServer, Route, RouteRegistry}
 import com.tuachotu.util.LoggerUtil
 import com.tuachotu.util.LoggerUtil.Logger
 import com.tuachotu.util.FirebaseAuthHandler
-import com.tuachotu.service.UserService
-import com.tuachotu.repository.UserRepository
+import com.tuachotu.service.{UserService, UserRoleService}
+import com.tuachotu.repository._
 
 import io.netty.handler.codec.http.{DefaultFullHttpResponse, FullHttpRequest, HttpVersion, HttpResponseStatus, HttpHeaderNames, HttpMethod, HttpResponse}
 import io.netty.buffer.Unpooled
@@ -23,6 +23,9 @@ class UserController {
   implicit private val logger: Logger = LoggerUtil.getLogger(getClass)
   val userRepository = new UserRepository()
   val userService = new UserService(userRepository)
+  val RoleRepository = new RoleRepository()
+  val userRoleRepository = new UserRoleRepository()
+  val userRoleService = new UserRoleService(userRoleRepository, RoleRepository)
 
   def UserLoginRoute(): Route = {
     new Route {
@@ -40,15 +43,18 @@ class UserController {
               // Token is valid, process the request
               case Right(claims) =>
                 // Await result of findAll with a timeout of 10 seconds
-                println(claims.toString())
-                println(claims.get("uid"))
                 Try {
                   Await.result(userService.findByFirebaseId(claims.getOrElse("user_id", "").asInstanceOf[String]), 10.seconds)
                 } match {
-                  case Success(users) =>
-                    val usersAsString = users.map(_.name).map(_.toString).mkString(",")
-                    LoggerUtil.info("UserCallSuccess", "users", usersAsString)
-                    val content = Unpooled.copiedBuffer(usersAsString.getBytes())
+                  case Success(user) =>
+                    val usersName  = user.map(_.name).getOrElse("NoName")
+                    val userId = user.map(_.id).getOrElse(UUID.randomUUID())
+                    val roles = Await.result(userRoleService.getRoleNamesByUserId(userId).recover {
+                      case ex: Exception =>
+                        LoggerUtil.error("UserLoginRoute", "error",  ex.getMessage)
+                        Seq.empty[String]
+                    }, 10.seconds)
+                    val content = Unpooled.copiedBuffer(roles.mkString(",").getBytes())
                     val response = new DefaultFullHttpResponse(
                       HttpVersion.HTTP_1_1,
                       HttpResponseStatus.OK,

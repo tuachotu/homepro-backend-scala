@@ -19,6 +19,8 @@ import scala.concurrent.Await
 import scala.concurrent.duration._
 
 // Provide a given instance for Array[String]
+// This is needed to pass args - to main
+// TODO: Clean it up?
 given CommandLineParser.FromString[Array[String]] with {
   def fromString(s: String): Array[String] = s.split(",")
 }
@@ -26,7 +28,9 @@ object HomeProMain {
   implicit private val logger: Logger = LoggerUtil.getLogger(getClass)
 
   @main def main(args: Array[String]): Unit = {
+    // Add all the routes here
     RouteRegistry.addRoute(new UserController().UserLoginRoute())
+
     RouteRegistry.getRoutes.foreach(route =>
     LoggerUtil.info("Route registered", "path", route.path, "method", route.method.toString))
     HttpServer.start()
