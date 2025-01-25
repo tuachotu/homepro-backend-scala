@@ -15,7 +15,7 @@ case class Role(
 
 object Role {
   // Companion object to enable `tupled`
-  val tupled = (apply _).tupled
+  val tupled = apply.tupled
 }
 
 class Roles(tag: Tag) extends Table[Role](tag, "roles") {

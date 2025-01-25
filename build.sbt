@@ -6,10 +6,13 @@ scalaVersion := "3.5.0"
 
 // Dependencies
 libraryDependencies ++= Seq(
-  // Netty
-  "io.netty" % "netty-all" % "4.1.113.Final",
+//  // Netty
+//  "io.netty" % "netty-all" % "4.1.113.Final",
 
-  // Logging
+
+  "com.typesafe.akka" %% "akka-http" % "10.2.10" cross CrossVersion.for3Use2_13,        // Correct Akka HTTP version
+  "com.typesafe.akka" %% "akka-stream" % "2.6.20" cross CrossVersion.for3Use2_13,       // Correct Akka Streams version
+  "de.heikoseeberger" %% "akka-http-circe" % "1.39.2" cross CrossVersion.for3Use2_13,
   "org.slf4j" % "slf4j-api" % "2.0.16",
   "ch.qos.logback" % "logback-classic" % "1.5.12",
   "net.logstash.logback" % "logstash-logback-encoder" % "8.0",

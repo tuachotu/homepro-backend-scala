@@ -13,7 +13,7 @@ case class UserRole(
                    )
 
 object UserRole {
-  val tupled = (apply _).tupled
+  val tupled = apply.tupled
 }
 
 class UserRoles(tag: Tag) extends Table[UserRole](tag, "user_roles") {
