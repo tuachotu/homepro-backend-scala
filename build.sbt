@@ -31,10 +31,10 @@ scalacOptions ++= Seq(
   "-encoding", "utf8"
 )
 // Assembly settings
-Compile / run / mainClass := Some("com.tuachotu.http.HomeProMain")
+Compile / run / mainClass := Some("com.tuachotu.HomeProMain")
 
 // Assembly settings
-assembly / mainClass := Some("com.tuachotu.http.HomeProMain")
+assembly / mainClass := Some("com.tuachotu.HomeProMain")
 
 // Merge strategy for assembly conflicts
 assembly / assemblyMergeStrategy := {

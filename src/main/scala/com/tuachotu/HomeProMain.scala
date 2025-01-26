@@ -1,26 +1,19 @@
-package com.tuachotu.http
-import com.tuachotu.http.handlers.controller.UserController
-import com.tuachotu.http.core.{HttpServer, Route, RouteRegistry}
-import com.tuachotu.util.LoggerUtil
-import com.tuachotu.util.LoggerUtil.Logger
-import com.tuachotu.util.FirebaseAuthHandler
-import com.tuachotu.service.UserService
+package com.tuachotu
+
+import com.tuachotu.controller.UserController
 import com.tuachotu.repository.UserRepository
-import com.tuachotu.util.ConfigUtil
+import com.tuachotu.service.UserService
+import com.tuachotu.util.{ConfigUtil, FirebaseAuthHandler, LoggerUtil}
+import com.tuachotu.util.LoggerUtil.Logger
 
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.stream.ActorMaterializer
-
-import scala.concurrent.ExecutionContextExecutor
-import scala.util.CommandLineParser
 import java.util.UUID
-import scala.concurrent.{ExecutionContext, Future}
-import scala.util.{Failure, Success, Try}
-
 import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.Await
-import scala.concurrent.duration._
+import scala.concurrent.duration.*
+import scala.concurrent.{Await, ExecutionContext, ExecutionContextExecutor, Future}
+import scala.util.{CommandLineParser, Failure, Success, Try}
 
 // Provide a given instance for Array[String]
 // This is needed to pass args - to main
