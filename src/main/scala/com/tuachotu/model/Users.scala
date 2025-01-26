@@ -1,6 +1,7 @@
 package com.tuachotu.model
 
-import slick.jdbc.PostgresProfile.api._
+import slick.jdbc.PostgresProfile.api.*
+
 import java.util.UUID
 import java.sql.Timestamp
 
@@ -20,7 +21,7 @@ case class User(
 
 object User {
   // Companion object to enable `tupled`
-  val tupled = (apply _).tupled
+  val tupled = apply.tupled
 }
 
 class Users(tag: Tag) extends Table[User](tag, "users") {
