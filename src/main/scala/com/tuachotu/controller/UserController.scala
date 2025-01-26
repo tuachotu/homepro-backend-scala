@@ -1,12 +1,19 @@
 package com.tuachotu.controller
 
+
+
 import akka.http.scaladsl.server.Directives._
+
 import akka.http.scaladsl.server.Route
 import akka.http.scaladsl.model._
 import akka.http.scaladsl.model.StatusCodes
 import com.tuachotu.service.{UserService, UserRoleService}
+
+
 import com.tuachotu.repository.{UserRepository, UserRoleRepository, RoleRepository}
 import com.tuachotu.util.{FirebaseAuthHandler, LoggerUtil}
+import com.tuachotu.repository.{RoleRepository, UserRepository, UserRoleRepository}
+import com.tuachotu.util.{FirebaseAuthHandler, LoggerUtil, UnauthorizedAccessException, UserNotFoundException}
 import com.tuachotu.util.LoggerUtil.Logger
 
 import scala.concurrent.{ExecutionContext, Future}
@@ -29,13 +36,13 @@ class UserController()(implicit ec: ExecutionContext) {
             val result = for {
               claims <- FirebaseAuthHandler.validateTokenAsync(token).flatMap {
                 case Right(claims) => Future.successful(claims)
-                case Left(error) => Future.failed(new Exception(error))
+                case Left(error) => Future.failed(new UnauthorizedAccessException)
               }
               firebaseId = claims.getOrElse("user_id", "").asInstanceOf[String]
               userOpt <- userService.findByFirebaseId(firebaseId)
               user <- userOpt match {
                 case Some(user) => Future.successful(user)
-                case None => Future.failed(new Exception("User not found"))
+                case None => Future.failed(new UserNotFoundException("User not found"))
               }
               roles <- userRoleService.getRoleNamesByUserId(user.id)
             } yield {
@@ -49,9 +56,9 @@ class UserController()(implicit ec: ExecutionContext) {
             onComplete(result) {
               case Success(response) => complete(response)
               case Failure(exception) =>
-                val errorStatus = exception.getMessage match {
-                  case "User not found" => StatusCodes.NotFound
-                  case "Invalid token" => StatusCodes.Unauthorized
+                val errorStatus = exception match {
+                  case _:UserNotFoundException => StatusCodes.NotFound
+                  case _:UnauthorizedAccessException => StatusCodes.Unauthorized
                   case _ => StatusCodes.InternalServerError
                 }
                 complete(HttpResponse(
