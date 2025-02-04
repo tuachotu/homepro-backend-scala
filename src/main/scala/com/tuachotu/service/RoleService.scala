@@ -1,6 +1,6 @@
 package com.tuachotu.service
 
-import com.tuachotu.model.Role
+import com.tuachotu.model.db.Role
 import com.tuachotu.repository.RoleRepository
 import java.util.UUID
 
