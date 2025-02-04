@@ -1,4 +1,4 @@
-package com.tuachotu.model
+package com.tuachotu.model.db
 
 import slick.jdbc.PostgresProfile.api.*
 

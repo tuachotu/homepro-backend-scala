@@ -1,8 +1,8 @@
 package com.tuachotu.service
 
+import com.tuachotu.model.db.User
 import com.tuachotu.repository.UserRepository
 import java.util.UUID
-import com.tuachotu.model.User
 import scala.concurrent.{ExecutionContext, Future}
 
 import scala.concurrent.ExecutionContext.Implicits.global

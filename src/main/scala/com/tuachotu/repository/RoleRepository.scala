@@ -1,8 +1,7 @@
 package com.tuachotu.repository
 
 import com.tuachotu.db.DatabaseConnection
-
-import com.tuachotu.model.{Role, Roles}
+import com.tuachotu.model.db.{Role, Roles}
 import java.util.UUID
 import slick.jdbc.PostgresProfile.api._
 
