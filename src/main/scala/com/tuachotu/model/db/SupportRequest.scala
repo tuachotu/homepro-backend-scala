@@ -13,7 +13,7 @@ case class SupportRequest(
                            status: String,
                            priority: String,
                            assignedExpertId: Option[UUID],
-                           info: String, // Consider mapping to JSON later
+                           info: Option[String], // Consider mapping to JSON later
                            createdAt: LocalDateTime,
                            createdBy: UUID,
                            updatedAt: LocalDateTime,
@@ -33,7 +33,7 @@ class SupportRequests(tag: Tag) extends Table[SupportRequest](tag, "support_requ
     def status = column[String]("status")
     def priority = column[String]("priority")
     def assignedExpertId = column[Option[UUID]]("assigned_expert_id")
-    def info = column[String]("info")
+    def info = column[Option[String]]("info")
     def createdAt = column[LocalDateTime]("created_at")
     def createdBy = column[UUID]("created_by")
     def updatedAt = column[LocalDateTime]("updated_at")

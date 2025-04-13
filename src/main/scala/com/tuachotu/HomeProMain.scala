@@ -1,6 +1,7 @@
 package com.tuachotu
 
 import com.tuachotu.controller.UserController
+import com.tuachotu.controller.SupportRequestController
 import com.tuachotu.repository.UserRepository
 import com.tuachotu.service.UserService
 import com.tuachotu.util.{ConfigUtil, FirebaseAuthHandler, LoggerUtil}
@@ -8,6 +9,7 @@ import com.tuachotu.util.LoggerUtil.Logger
 
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
+import akka.http.scaladsl.server.Directives._
 import akka.stream.ActorMaterializer
 import java.util.UUID
 import scala.concurrent.ExecutionContext.Implicits.global
@@ -29,8 +31,9 @@ object HomeProMain {
     implicit  val logger: Logger = LoggerUtil.getLogger(getClass)
     // Add all the routes here
     val userController = new UserController()
+    val supportRequestController = new SupportRequestController()
     // Combine all user-related routes
-    val routes = userController.routes
+    val routes = userController.routes ~ supportRequestController.routes
     Http().newServerAt("0.0.0.0", ConfigUtil.getInt("server.port", 2107)).bind(routes)
     Await.result(system.whenTerminated, Duration.Inf)
   }
