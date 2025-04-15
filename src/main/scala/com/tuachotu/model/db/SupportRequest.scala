@@ -1,8 +1,7 @@
 package com.tuachotu.model.db
-
-import slick.jdbc.PostgresProfile.api.*
 import java.util.UUID
 import java.time.LocalDateTime
+import slick.jdbc.PostgresProfile.api._
 
 case class SupportRequest(
                            id: UUID,
@@ -13,7 +12,6 @@ case class SupportRequest(
                            status: String,
                            priority: String,
                            assignedExpertId: Option[UUID],
-                           info: Option[String], // Consider mapping to JSON later
                            createdAt: LocalDateTime,
                            createdBy: UUID,
                            updatedAt: LocalDateTime,
@@ -24,7 +22,11 @@ object SupportRequest {
     val tupled = apply.tupled
 }
 
-class SupportRequests(tag: Tag) extends Table[SupportRequest](tag, "support_requests") {
+class SupportRequests(tag: Tag) extends Table[SupportRequest](tag, "support_requests"){
+
+    val profile = slick.jdbc.PostgresProfile
+    import profile.api._
+
     def id = column[UUID]("id", O.PrimaryKey)
     def homeownerId = column[UUID]("homeowner_id")
     def homeId = column[Option[UUID]]("home_id")
@@ -33,7 +35,6 @@ class SupportRequests(tag: Tag) extends Table[SupportRequest](tag, "support_requ
     def status = column[String]("status")
     def priority = column[String]("priority")
     def assignedExpertId = column[Option[UUID]]("assigned_expert_id")
-    def info = column[Option[String]]("info")
     def createdAt = column[LocalDateTime]("created_at")
     def createdBy = column[UUID]("created_by")
     def updatedAt = column[LocalDateTime]("updated_at")
@@ -48,7 +49,6 @@ class SupportRequests(tag: Tag) extends Table[SupportRequest](tag, "support_requ
       status,
       priority,
       assignedExpertId,
-      info,
       createdAt,
       createdBy,
       updatedAt,
