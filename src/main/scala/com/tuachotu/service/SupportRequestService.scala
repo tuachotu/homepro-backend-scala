@@ -1,7 +1,7 @@
 
 package com.tuachotu.service
 
-import com.tuachotu.model.db.{SupportRequest, SupportRequests}
+import com.tuachotu.model.db.SupportRequest
 import com.tuachotu.model.request.CreateSupportRequest
 import com.tuachotu.repository.SupportRequestRepository
 import java.util.UUID

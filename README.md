@@ -1,100 +1,320 @@
-# ScalaNettyWrapper
+# HomePro Backend - Scala
 
-**ScalaNettyWrapper** is a lightweight, high-performance HTTP server built using **Netty**. It provides a customizable and scalable framework for handling HTTP requests with a focus on non-blocking I/O and structured logging.
-
----
-
-## Features
-
-- **High Performance**: Built on Netty's event-driven, non-blocking I/O model for efficient handling of concurrent connections.
-- **Customizable**: Easily extendable with custom handlers to suit your application's needs.
-- **Structured Logging**: Integrated with SLF4J and Logstash for detailed and structured logs.
-- **Scalability**: Configurable worker threads and connection options for optimized performance.
+**HomePro Backend** is a high-performance, scalable home services platform backend built with **Scala 3**, **Akka HTTP**, and **PostgreSQL**. It provides a robust foundation for managing users, roles, and support requests with Firebase authentication integration.
 
 ---
 
-## Getting Started
+## 🚀 Features
 
-### Prerequisites
-
-- **Java**: OpenJDK 11.0.25+
-- **Scala**: Scala 3.x
-- **Build Tool**: sbt (Scala Build Tool)
-
----
-
-### Installation
-
-1. Clone the repository:
-
-   ```bash
-   git clone https://github.com/<your-username>/ScalaNettyWrapper.git
-   cd ScalaNettyWrapper
-   ```
-
-2. Build the project:
-
-   ```bash
-   sbt compile
-   ```
-
-3. Run the server:
-
-   ```bash
-   sbt run
-   ```
+- **🔥 High Performance**: Built with Akka HTTP for non-blocking, reactive request handling
+- **🗄️ Direct SQL Control**: Raw PostgreSQL queries with HikariCP connection pooling (no ORM overhead)
+- **🔐 Firebase Authentication**: Secure authentication using Firebase Admin SDK
+- **👥 Role-Based Access Control**: Flexible user role management system
+- **📝 Support Request Management**: Complete lifecycle management for service requests
+- **📊 Structured Logging**: JSON-structured logs with Logstash integration
+- **♻️ Soft Delete Support**: Logical deletion with audit trails
+- **🛡️ SQL Injection Protection**: Prepared statements with parameter binding
+- **⚡ Connection Pooling**: Optimized database connections with HikariCP
 
 ---
 
-## Configuration
+## 🏗️ Architecture
 
-The server listens on port `2107` by default. To change the port or add other configurations, update the `start` method in `HttpServer`:
-
-```scala
-HttpServer.start(port = 8080)
+```
+com.tuachotu
+├── controller/          # HTTP request handlers
+│   ├── UserController
+│   └── SupportRequestController
+├── service/            # Business logic layer
+│   ├── UserService
+│   ├── RoleService
+│   └── SupportRequestService
+├── repository/         # Data access layer (Raw SQL)
+│   ├── UserRepository
+│   ├── RoleRepository
+│   ├── UserRoleRepository
+│   └── SupportRequestRepository
+├── model/
+│   ├── db/            # Database entities
+│   ├── request/       # API request models
+│   └── response/      # API response models
+├── util/              # Utilities
+│   ├── ConfigUtil     # Configuration management
+│   ├── LoggerUtil     # Structured logging
+│   ├── FirebaseAuthHandler
+│   └── TimeUtil
+└── db/                # Database connection management
+    └── DatabaseConnection
 ```
 
 ---
 
-## Project Structure
+## 🛠️ Tech Stack
 
-- **`com.tuachotu.http.core.HttpServer`**: The main server entry point. Configures the Netty server and handles incoming connections.
-- **`com.tuachotu.http.handlers.HttpHandler`**: Custom request handler. Extend this class to define request processing logic.
-- **`com.tuachotu.util.LoggerUtil`**: Utility for structured logging with SLF4J and Logstash.
+- **Language**: Scala 3.5.0
+- **Framework**: Akka HTTP 10.2.10
+- **Database**: PostgreSQL 12+
+- **Connection Pool**: HikariCP 5.1.0
+- **Authentication**: Firebase Admin SDK 9.4.2
+- **JSON**: Spray JSON 1.3.6
+- **Logging**: SLF4J + Logback + Logstash
+- **Build Tool**: sbt 1.10.1
 
 ---
 
-## Logging
+## 📋 Prerequisites
 
-ScalaNettyWrapper uses structured logging to enhance observability and debugging. Key-value pairs can be added to logs for better context:
+- **Java**: OpenJDK 11+
+- **Scala**: 3.5.0
+- **PostgreSQL**: 12+
+- **sbt**: 1.10.1+
+- **Firebase Project**: For authentication
 
-```scala
-LoggerUtil.info("Server started", "port", 2107)
+---
+
+## 🚀 Quick Start
+
+### 1. Clone the Repository
+
+```bash
+git clone <repository-url>
+cd homepro-backend-scala
+```
+
+### 2. Set Up PostgreSQL Database
+
+```bash
+# Create database and tables
+createdb homepro
+psql -d homepro -f schema.sql
+```
+
+### 3. Configure Environment Variables
+
+**Required:**
+```bash
+# Database Configuration (Required)
+export HOME_PRO_DB_USER="your_postgresql_username"
+export HOME_PRO_DB_PASSWORD="your_postgresql_password"
+
+# Firebase Configuration (Required for authentication)
+export FIREBASE_CONFIG_PATH="/path/to/your/firebase-service-account.json"
+```
+
+**Optional (have defaults):**
+```bash
+# Database URL (defaults to localhost:5432/homepro)
+export HOME_PRO_DB_URL="jdbc:postgresql://localhost:5432/homepro"
+
+# Connection Pool Settings
+export HOME_PRO_DB_MAX_POOL_SIZE="10"
+export HOME_PRO_DB_MIN_IDLE="5"
+export HOME_PRO_DB_CONNECTION_TIMEOUT="30000"
+export HOME_PRO_DB_IDLE_TIMEOUT="600000"
+export HOME_PRO_DB_MAX_LIFETIME="1800000"
+```
+
+### 4. Build and Run
+
+```bash
+# Compile the project
+sbt compile
+
+# Run the application
+sbt run
+```
+
+The server will start on `http://localhost:2101`
+
+---
+
+## ⚙️ Configuration
+
+### Database Configuration (`application.conf`)
+
+```hocon
+database {
+  url = "jdbc:postgresql://localhost:5432/homepro"
+  url = ${?HOME_PRO_DB_URL}
+  user = ${?HOME_PRO_DB_USER}
+  password = ${?HOME_PRO_DB_PASSWORD}
+  maxPoolSize = 10
+  maxPoolSize = ${?HOME_PRO_DB_MAX_POOL_SIZE}
+  minIdle = 5
+  minIdle = ${?HOME_PRO_DB_MIN_IDLE}
+  connectionTimeout = 30000
+  idleTimeout = 600000
+  maxLifetime = 1800000
+}
+
+server {
+  port = 2101
+}
+
+firebase {
+  auth {
+    config-path = ${?FIREBASE_CONFIG_PATH}
+  }
+}
 ```
 
 ---
 
-## Contributing
+## 📊 Database Schema
 
-Contributions are welcome! Follow these steps to contribute:
+The application uses the following main tables:
 
-1. Fork the repository.
-2. Create a feature branch (`git checkout -b feature-name`).
-3. Commit your changes (`git commit -m "Add a new feature"`).
-4. Push to your branch (`git push origin feature-name`).
-5. Open a pull request.
+- **`users`**: User accounts with Firebase integration
+- **`roles`**: System roles (admin, homeowner, expert, manager)
+- **`user_roles`**: User-role assignments (many-to-many)
+- **`support_requests`**: Service request management
 
----
-
-## License
-
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+All tables support soft deletion with `deleted_at` timestamps.
 
 ---
 
-## Contact
+## 🔌 API Endpoints
 
-For any questions or support, feel free to reach out:
+### User Management
+- `GET /users` - List all users
+- `GET /users/{id}` - Get user by ID
+- `POST /users` - Create new user
+- `PUT /users/{id}` - Update user
+- `DELETE /users/{id}` - Soft delete user
+
+### Support Requests
+- `GET /support-requests` - List support requests
+- `GET /support-requests/{id}` - Get support request by ID
+- `POST /support-requests` - Create new support request
+- `PUT /support-requests/{id}/status` - Update request status
+- `PUT /support-requests/{id}/assign` - Assign expert
+
+### Role Management
+- `GET /roles` - List all roles
+- `POST /users/{id}/roles` - Assign role to user
+- `DELETE /users/{id}/roles/{roleId}` - Remove role from user
+
+---
+
+## 🔍 Logging
+
+The application uses structured JSON logging:
+
+```scala
+// Example log output
+{
+  "timestamp": "2025-08-03T13:45:30.123Z",
+  "level": "INFO",
+  "logger": "com.tuachotu.repository.UserRepository",
+  "message": "User created",
+  "userId": "550e8400-e29b-41d4-a716-446655440000",
+  "rowsAffected": 1
+}
+```
+
+Logs are configured in `logback.xml` and can be easily integrated with log aggregation systems.
+
+---
+
+## 🏗️ Development
+
+### Building
+
+```bash
+# Compile
+sbt compile
+
+# Run tests (when available)
+sbt test
+
+# Create assembly JAR
+sbt assembly
+```
+
+### Code Style
+
+The project follows Scala 3 best practices:
+- Functional programming principles
+- Immutable data structures
+- Type safety with case classes
+- Resource management with `Using`
+
+---
+
+## 🚢 Deployment
+
+### Docker Deployment
+
+```dockerfile
+FROM openjdk:11-jre-slim
+
+COPY target/scala-3.5.0/http-assembly-0.1.0.jar app.jar
+
+EXPOSE 2101
+
+CMD ["java", "-jar", "app.jar"]
+```
+
+### Environment Setup
+
+```bash
+# Production environment variables
+export HOME_PRO_DB_URL="jdbc:postgresql://prod-postgres:5432/homepro"
+export HOME_PRO_DB_USER="prod_user"
+export HOME_PRO_DB_PASSWORD="secure_password"
+export FIREBASE_CONFIG_PATH="/etc/firebase/service-account.json"
+```
+
+---
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+### Code Guidelines
+
+- Follow Scala 3 conventions
+- Add appropriate logging to new features
+- Include error handling
+- Write clean, self-documenting code
+- Update documentation as needed
+
+---
+
+## 📝 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## 👥 Support
 
 - **Author**: Vikrant Singh
-- **Email**: [vikrant.thakur@gmail.com]
+- **Email**: vikrant.thakur@gmail.com
+- **Issues**: Please use GitHub Issues for bug reports and feature requests
+
+---
+
+## 📈 Performance
+
+- **Connection Pooling**: HikariCP with configurable pool sizes
+- **Non-blocking I/O**: Akka HTTP for concurrent request handling
+- **Efficient SQL**: Direct queries without ORM overhead
+- **Resource Management**: Automatic cleanup of database connections
+
+---
+
+## 🔒 Security
+
+- **Firebase Authentication**: Secure user authentication
+- **SQL Injection Protection**: Prepared statements only
+- **Input Validation**: Request validation at controller layer
+- **Audit Trails**: Soft delete with modification tracking
+
+---
+
+*Built with ❤️ using Scala 3 and Akka HTTP*

@@ -14,9 +14,8 @@ libraryDependencies ++= Seq(
   "net.logstash.logback" % "logstash-logback-encoder" % "8.0",
   "com.typesafe" % "config" % "1.4.3",
   "com.google.firebase" % "firebase-admin" % "9.4.2",
-  "com.typesafe.slick" %% "slick" % "3.5.0",
-  "com.typesafe.slick" %% "slick-hikaricp" % "3.5.0",
-  "org.postgresql" % "postgresql" % "42.7.2",
+  "org.postgresql" % "postgresql" % "42.7.4",
+  "com.zaxxer" % "HikariCP" % "5.1.0",
   "ch.megard" %% "akka-http-cors" % "1.1.3"
 )
 

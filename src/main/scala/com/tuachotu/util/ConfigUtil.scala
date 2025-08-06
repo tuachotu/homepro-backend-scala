@@ -12,6 +12,10 @@ object ConfigUtil {
   def getInt(path: String, default: Int = 0): Int =
     if (config.hasPath(path)) config.getInt(path) else default
 
+  /** Get a long value from the config */
+  def getLong(path: String, default: Long = 0L): Long =
+    if (config.hasPath(path)) config.getLong(path) else default
+
   /** Get a boolean value from the config */
   def getBoolean(path: String, default: Boolean = false): Boolean =
     if (config.hasPath(path)) config.getBoolean(path) else default
