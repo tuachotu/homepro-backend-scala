@@ -1,7 +1,8 @@
 package com.tuachotu.model.db
+
 import java.util.UUID
 import java.time.LocalDateTime
-import slick.jdbc.PostgresProfile.api._
+import java.sql.{ResultSet, Timestamp}
 
 case class SupportRequest(
                            id: UUID,
@@ -19,39 +20,20 @@ case class SupportRequest(
                          )
 
 object SupportRequest {
-    val tupled = apply.tupled
-}
-
-class SupportRequests(tag: Tag) extends Table[SupportRequest](tag, "support_requests"){
-
-    val profile = slick.jdbc.PostgresProfile
-    import profile.api._
-
-    def id = column[UUID]("id", O.PrimaryKey)
-    def homeownerId = column[UUID]("homeowner_id")
-    def homeId = column[Option[UUID]]("home_id")
-    def title = column[String]("title")
-    def description = column[Option[String]]("description")
-    def status = column[String]("status")
-    def priority = column[String]("priority")
-    def assignedExpertId = column[Option[UUID]]("assigned_expert_id")
-    def createdAt = column[LocalDateTime]("created_at")
-    def createdBy = column[UUID]("created_by")
-    def updatedAt = column[LocalDateTime]("updated_at")
-    def updatedBy = column[Option[UUID]]("updated_by")
-
-    def * = (
-      id,
-      homeownerId,
-      homeId,
-      title,
-      description,
-      status,
-      priority,
-      assignedExpertId,
-      createdAt,
-      createdBy,
-      updatedAt,
-      updatedBy
-    ) <> (SupportRequest.tupled, SupportRequest.unapply)
+  def fromResultSet(rs: ResultSet): SupportRequest = {
+    SupportRequest(
+      id = rs.getObject("id", classOf[UUID]),
+      homeownerId = rs.getObject("homeowner_id", classOf[UUID]),
+      homeId = Option(rs.getObject("home_id", classOf[UUID])),
+      title = rs.getString("title"),
+      description = Option(rs.getString("description")),
+      status = rs.getString("status"),
+      priority = rs.getString("priority"),
+      assignedExpertId = Option(rs.getObject("assigned_expert_id", classOf[UUID])),
+      createdAt = rs.getTimestamp("created_at").toLocalDateTime,
+      createdBy = rs.getObject("created_by", classOf[UUID]),
+      updatedAt = rs.getTimestamp("updated_at").toLocalDateTime,
+      updatedBy = Option(rs.getObject("updated_by", classOf[UUID]))
+    )
+  }
 }

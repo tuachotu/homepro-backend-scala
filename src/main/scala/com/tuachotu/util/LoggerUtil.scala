@@ -21,6 +21,17 @@ object LoggerUtil {
     logger.error(message, structuredArgs*)
   }
 
+  // Error log with exception
+  def error(message: String, exception: Throwable)(implicit logger: Logger): Unit = {
+    logger.error(message, exception)
+  }
+
+  // Warn log with implicit logger and varargs key-value pairs
+  def warn(message: String, args: Any*)(implicit logger: Logger): Unit = {
+    val structuredArgs = createStructuredArguments(args)
+    logger.warn(message, structuredArgs*)
+  }
+
   // Debug log with implicit logger and varargs key-value pairs
   def debug(message: String, args: Any*)(implicit logger: Logger): Unit = {
     val structuredArgs = createStructuredArguments(args)

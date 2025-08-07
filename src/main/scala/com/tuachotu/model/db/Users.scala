@@ -1,9 +1,7 @@
 package com.tuachotu.model.db
 
-import slick.jdbc.PostgresProfile.api.*
-
 import java.util.UUID
-import java.sql.Timestamp
+import java.sql.{ResultSet, Timestamp}
 
 case class User(
                  id: UUID,
@@ -20,23 +18,19 @@ case class User(
                )
 
 object User {
-  // Companion object to enable `tupled`
-  val tupled = apply.tupled
-}
-
-class Users(tag: Tag) extends Table[User](tag, "users") {
-  def id = column[UUID]("id", O.PrimaryKey, O.Default(java.util.UUID.randomUUID()))
-  def firebaseUid = column[Option[String]]("firebase_uid", O.Unique)
-  def name = column[Option[String]]("name", O.Length(500))
-  def email = column[Option[String]]("email", O.Unique)
-  def phoneNumber = column[Option[String]]("phone_number")
-  def profile = column[Option[String]]("profile")
-  def createdBy = column[Option[String]]("created_by")
-  def lastModifiedBy = column[Option[String]]("last_modified_by")
-  def createdAt = column[Timestamp]("created_at", O.Default(new Timestamp(System.currentTimeMillis())))
-  def lastModifiedAt = column[Timestamp]("last_modified_at", O.Default(new Timestamp(System.currentTimeMillis())))
-  def deletedAt = column[Option[Timestamp]]("deleted_at")
-
-  def * = (id, firebaseUid, name, email, phoneNumber, profile, createdBy, lastModifiedBy, createdAt, lastModifiedAt, deletedAt) <>
-    (User.tupled, User.unapply)
+  def fromResultSet(rs: ResultSet): User = {
+    User(
+      id = rs.getObject("id", classOf[UUID]),
+      firebaseUid = Option(rs.getString("firebase_uid")),
+      name = Option(rs.getString("name")),
+      email = Option(rs.getString("email")),
+      phoneNumber = Option(rs.getString("phone_number")),
+      profile = Option(rs.getString("profile")),
+      createdBy = Option(rs.getString("created_by")),
+      lastModifiedBy = Option(rs.getString("last_modified_by")),
+      createdAt = rs.getTimestamp("created_at"),
+      lastModifiedAt = rs.getTimestamp("last_modified_at"),
+      deletedAt = Option(rs.getTimestamp("deleted_at"))
+    )
+  }
 }

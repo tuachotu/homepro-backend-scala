@@ -1,8 +1,6 @@
 package com.tuachotu.model.db
 
-import slick.jdbc.PostgresProfile.api._
-import java.util.UUID
-import java.sql.Timestamp
+import java.sql.{ResultSet, Timestamp}
 
 case class Role(
   id: Int,
@@ -14,18 +12,14 @@ case class Role(
 )
 
 object Role {
-  // Companion object to enable `tupled`
-  val tupled = apply.tupled
-}
-
-class Roles(tag: Tag) extends Table[Role](tag, "roles") {
-  def id = column[Int]("id", O.PrimaryKey, O.AutoInc)
-  def name = column[String]("name", O.Length(255))
-  def description = column[Option[String]]("description")
-  def createdAt = column[Timestamp]("created_at", O.Default(new Timestamp(System.currentTimeMillis())))
-  def lastModifiedAt = column[Timestamp]("updated_at", O.Default(new Timestamp(System.currentTimeMillis())))
-  def deletedAt = column[Option[Timestamp]]("deleted_at")
-
-  def * = (id, name, description, createdAt, lastModifiedAt, deletedAt) <>
-    (Role.tupled, Role.unapply)
+  def fromResultSet(rs: ResultSet): Role = {
+    Role(
+      id = rs.getInt("id"),
+      name = rs.getString("name"),
+      description = Option(rs.getString("description")),
+      createdAt = rs.getTimestamp("created_at"),
+      lastModifiedAt = rs.getTimestamp("updated_at"),
+      deletedAt = Option(rs.getTimestamp("deleted_at"))
+    )
+  }
 }
