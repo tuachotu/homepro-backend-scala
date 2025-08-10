@@ -69,7 +69,7 @@ class UserRepository(implicit ec: ExecutionContext) {
     DatabaseConnection.executeUpdate(
       sql,
       user.id,
-      user.firebaseUid.orNull,
+      user.firebaseUid,
       user.name.orNull,
       user.email.orNull,
       user.phoneNumber.orNull,
@@ -96,7 +96,7 @@ class UserRepository(implicit ec: ExecutionContext) {
     
     DatabaseConnection.executeUpdate(
       sql,
-      user.firebaseUid.orNull,
+      user.firebaseUid,
       user.name.orNull,
       user.email.orNull,
       user.phoneNumber.orNull,
