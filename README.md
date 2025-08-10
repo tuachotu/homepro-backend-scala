@@ -231,6 +231,46 @@ sbt test
 sbt assembly
 ```
 
+### Testing
+
+#### S3 Integration Tests
+
+The project includes comprehensive tests for S3 photo storage and presigned URL generation:
+
+**Prerequisites:**
+- Database running with test data (users, homes, photos)
+- AWS credentials configured (environment variables or IAM roles)
+- Environment variables set: `HOME_PRO_DB_USER`, `HOME_PRO_DB_PASSWORD`, `FIREBASE_CONFIG_PATH`
+
+**Available Tests:**
+
+```bash
+# Test S3 Service directly (no database dependency)
+# Verifies AWS connectivity and context-based URL generation
+sbt "Test/runMain com.tuachotu.testS3Service"
+
+# Test end-to-end S3 integration with real database data  
+# Verifies User → Home → Photos → Presigned URLs flow
+sbt "Test/runMain com.tuachotu.testS3Integration <user-id>"
+
+# Example with actual user ID:
+sbt "Test/runMain com.tuachotu.testS3Integration a8f65408-8bce-4662-8fb3-d072b1f6dd34"
+```
+
+**What the tests verify:**
+- ✅ Context-based S3 path construction: `{home_id}/{filename}`
+- ✅ AWS S3 connectivity and presigned URL generation
+- ✅ 1-hour URL expiration configuration
+- ✅ Priority logic: homeItemId → homeId → userId → fallback
+- ✅ Integration with PhotoService and HomeService
+
+**S3 Photo Storage Architecture:**
+- **Database**: Stores only filename in `photos.s3_key` field
+- **S3 Structure**: Photos organized as `{context_id}/{filename}`
+  - Home photos: `{home_id}/kitchen.jpg`
+  - Home item photos: `{home_item_id}/bathroom_sink.jpg`  
+  - User photos: `{user_id}/profile_pic.jpg`
+
 ### Code Style
 
 The project follows Scala 3 best practices:

@@ -1,0 +1,872 @@
+openapi: 3.0.3
+info:
+  title: HomePro Backend API
+  description: |
+    A comprehensive home services platform backend API built with Scala 3, Akka HTTP, and PostgreSQL.
+    
+    ## Features
+    - 🔐 Firebase Authentication with JWT tokens
+    - 🏠 Home and home item management
+    - 📸 Photo management with S3 pre-signed URLs
+    - 🎫 Support request lifecycle management
+    - 👥 User and role-based access control
+    
+    ## Authentication
+    Most endpoints require Firebase JWT authentication via the `Authorization: Bearer {token}` header.
+  version: 1.0.0
+  contact:
+    name: HomePro API Support
+    email: support@homepro.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:2107
+    description: Local development server
+  - url: https://api.homepro.com
+    description: Production server
+
+security:
+  - FirebaseAuth: []
+
+paths:
+  # User Management APIs
+  /api/users/login:
+    get:
+      tags:
+        - Authentication
+      summary: User login and profile retrieval
+      description: |
+        Validates Firebase JWT token and returns user profile with roles.
+        Creates user session and returns user details.
+      security:
+        - FirebaseAuth: []
+      responses:
+        '200':
+          description: User successfully authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserLoginResponse'
+              example:
+                id: "550e8400-e29b-41d4-a716-446655440000"
+                name: "John Doe"
+                roles: "homeowner, admin"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # Home Management APIs
+  /api/homes:
+    get:
+      tags:
+        - Homes
+      summary: Get homes for a user
+      description: |
+        Retrieves all homes that the authenticated user has access to, 
+        along with comprehensive statistics including item counts, photo counts, 
+        and emergency item counts.
+      security:
+        - FirebaseAuth: []
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          description: UUID of the user whose homes to retrieve
+          schema:
+            type: string
+            format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        '200':
+          description: List of homes with statistics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HomeResponse'
+              example:
+                - id: "home-uuid-1"
+                  address: "123 Main St, Anytown, ST 12345"
+                  role: "owner"
+                  created_at: "2025-08-01T10:00:00"
+                  updated_at: "2025-08-07T15:30:00"
+                  stats:
+                    total_items: 25
+                    total_photos: 48
+                    emergency_items: 3
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/homes/{homeId}/items:
+    get:
+      tags:
+        - Home Items
+      summary: Get items for a specific home
+      description: |
+        Retrieves all items within a home with optional filtering by type and emergency status.
+        Includes photo counts and pre-signed URLs for primary photos.
+        Supports pagination for large inventories.
+      security:
+        - FirebaseAuth: []
+      parameters:
+        - name: homeId
+          in: path
+          required: true
+          description: UUID of the home
+          schema:
+            type: string
+            format: uuid
+          example: "home-uuid-1"
+        - name: type
+          in: query
+          required: false
+          description: Filter by item type
+          schema:
+            $ref: '#/components/schemas/HomeItemType'
+        - name: emergency
+          in: query
+          required: false
+          description: Filter by emergency status
+          schema:
+            type: boolean
+          example: true
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of items to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+          example: 25
+        - name: offset
+          in: query
+          required: false
+          description: Number of items to skip (for pagination)
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          example: 0
+      responses:
+        '200':
+          description: List of home items with metadata
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HomeItemResponse'
+              example:
+                - id: "item-uuid-1"
+                  name: "Kitchen Sink Main Shutoff Valve"
+                  type: "utility_control"
+                  is_emergency: false
+                  data:
+                    location: "Under kitchen sink"
+                    brand: "Kohler"
+                    model: "K-1234"
+                    installation_date: "2023-05-15"
+                  created_at: "2025-08-02T14:00:00"
+                  photo_count: 3
+                  primary_photo_url: "https://s3.amazonaws.com/homepro-photos/signed-url"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # Photo Management APIs
+  /api/photos:
+    get:
+      tags:
+        - Photos
+      summary: Get photos with metadata and pre-signed URLs
+      description: |
+        Retrieves photos for a specific home or home item with complete metadata
+        and secure pre-signed S3 URLs for image access (valid for 1 hour).
+      security:
+        - FirebaseAuth: []
+      parameters:
+        - name: homeId
+          in: query
+          required: false
+          description: UUID of the home (mutually exclusive with homeItemId)
+          schema:
+            type: string
+            format: uuid
+          example: "home-uuid-1"
+        - name: homeItemId
+          in: query
+          required: false
+          description: UUID of the home item (mutually exclusive with homeId)
+          schema:
+            type: string
+            format: uuid
+          example: "item-uuid-1"
+      responses:
+        '200':
+          description: List of photos with metadata and pre-signed URLs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PhotoResponse'
+              example:
+                - id: "photo-uuid-1"
+                  file_name: "kitchen-valve-main.jpg"
+                  caption: "Main shutoff valve under kitchen sink"
+                  is_primary: true
+                  created_at: "2025-08-07T10:00:00"
+                  url: "https://s3.amazonaws.com/homepro-photos/signed-url-1"
+                  home_item:
+                    id: "item-uuid-1"
+                    name: "Kitchen Sink Valve"
+                    type: "utility_control"
+                  uploaded_by:
+                    id: "user-uuid-1"
+                    name: "Jane Smith"
+                    email: "jane@example.com"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # Support Request APIs
+  /api/support-requests:
+    get:
+      tags:
+        - Support Requests
+      summary: Get support requests
+      description: |
+        Retrieves support requests based on user permissions and filters.
+        Includes full request lifecycle information and assigned expert details.
+      security:
+        - FirebaseAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: Filter by request status
+          schema:
+            $ref: '#/components/schemas/SupportRequestStatus'
+        - name: homeId
+          in: query
+          required: false
+          description: Filter by home ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of support requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SupportRequestResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      tags:
+        - Support Requests
+      summary: Create a new support request
+      description: |
+        Creates a new support request for home services.
+        Automatically assigns to appropriate experts based on request type and location.
+      security:
+        - FirebaseAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSupportRequest'
+            example:
+              homeId: "home-uuid-1"
+              title: "Kitchen Sink Leak Repair"
+              description: "Main shutoff valve under kitchen sink is leaking. Need urgent repair."
+              priority: "high"
+      responses:
+        '201':
+          description: Support request created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateSupportRequestResponse'
+              example:
+                id: "support-uuid-1"
+                title: "Kitchen Sink Leak Repair"
+                status: "open"
+                created_at: "2025-08-08T09:00:00"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  securitySchemes:
+    FirebaseAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Firebase JWT token obtained from Firebase Authentication.
+        Include in the Authorization header as: `Bearer {your_firebase_jwt_token}`
+
+  schemas:
+    # User Authentication Schemas
+    UserLoginResponse:
+      type: object
+      required:
+        - id
+        - name
+        - roles
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique user identifier
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        name:
+          type: string
+          description: User's display name
+          example: "John Doe"
+        roles:
+          type: string
+          description: Comma-separated list of user roles
+          example: "homeowner, admin"
+
+    # Home Management Schemas
+    HomeResponse:
+      type: object
+      required:
+        - id
+        - role
+        - created_at
+        - updated_at
+        - stats
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique home identifier
+          example: "home-uuid-1"
+        address:
+          type: string
+          nullable: true
+          description: Home address
+          example: "123 Main St, Anytown, ST 12345"
+        role:
+          type: string
+          description: User's role in this home
+          enum: [owner, guest, manager]
+          example: "owner"
+        created_at:
+          type: string
+          format: date-time
+          description: Home creation timestamp (ISO 8601)
+          example: "2025-08-01T10:00:00"
+        updated_at:
+          type: string
+          format: date-time
+          description: Last update timestamp (ISO 8601)
+          example: "2025-08-07T15:30:00"
+        stats:
+          $ref: '#/components/schemas/HomeStatsResponse'
+
+    HomeStatsResponse:
+      type: object
+      required:
+        - total_items
+        - total_photos
+        - emergency_items
+      properties:
+        total_items:
+          type: integer
+          minimum: 0
+          description: Total number of items in the home
+          example: 25
+        total_photos:
+          type: integer
+          minimum: 0
+          description: Total number of photos for this home
+          example: 48
+        emergency_items:
+          type: integer
+          minimum: 0
+          description: Number of items marked as emergency
+          example: 3
+
+    # Home Item Schemas
+    HomeItemResponse:
+      type: object
+      required:
+        - id
+        - name
+        - type
+        - is_emergency
+        - data
+        - created_at
+        - photo_count
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique home item identifier
+          example: "item-uuid-1"
+        name:
+          type: string
+          description: Item name/title
+          example: "Kitchen Sink Main Shutoff Valve"
+        type:
+          $ref: '#/components/schemas/HomeItemType'
+        is_emergency:
+          type: boolean
+          description: Whether this item is marked for emergency access
+          example: false
+        data:
+          type: object
+          additionalProperties: true
+          description: Flexible JSONB data field for item-specific information
+          example:
+            location: "Under kitchen sink"
+            brand: "Kohler"
+            model: "K-1234"
+            installation_date: "2023-05-15"
+            warranty_expires: "2028-05-15"
+        created_at:
+          type: string
+          format: date-time
+          description: Item creation timestamp (ISO 8601)
+          example: "2025-08-02T14:00:00"
+        photo_count:
+          type: integer
+          minimum: 0
+          description: Number of photos associated with this item
+          example: 3
+        primary_photo_url:
+          type: string
+          format: uri
+          nullable: true
+          description: Pre-signed S3 URL for primary photo (valid for 1 hour)
+          example: "https://s3.amazonaws.com/homepro-photos/signed-url"
+
+    HomeItemType:
+      type: string
+      enum:
+        - room
+        - utility_control
+        - appliance
+        - structural
+        - observation
+        - wiring
+        - sensor
+        - other
+      description: |
+        Category of home item:
+        - `room`: Living spaces (bedroom, kitchen, etc.)
+        - `utility_control`: Valves, switches, breakers
+        - `appliance`: Household appliances
+        - `structural`: Structural elements (beams, foundation)
+        - `observation`: Notes and observations
+        - `wiring`: Electrical wiring and components
+        - `sensor`: Smart sensors and monitoring devices
+        - `other`: Uncategorized items
+      example: "utility_control"
+
+    # Photo Management Schemas
+    PhotoResponse:
+      type: object
+      required:
+        - id
+        - file_name
+        - is_primary
+        - created_at
+        - url
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique photo identifier
+          example: "photo-uuid-1"
+        file_name:
+          type: string
+          description: Original filename
+          example: "kitchen-valve-main.jpg"
+        caption:
+          type: string
+          nullable: true
+          description: Photo caption/description
+          example: "Main shutoff valve under kitchen sink"
+        is_primary:
+          type: boolean
+          description: Whether this is the primary photo for the item/home
+          example: true
+        created_at:
+          type: string
+          format: date-time
+          description: Photo upload timestamp (ISO 8601)
+          example: "2025-08-07T10:00:00"
+        url:
+          type: string
+          format: uri
+          description: Pre-signed S3 URL for secure photo access (valid for 1 hour)
+          example: "https://s3.amazonaws.com/homepro-photos/signed-url-1"
+        home_item:
+          $ref: '#/components/schemas/HomeItemInfo'
+          nullable: true
+        uploaded_by:
+          $ref: '#/components/schemas/UploadedByInfo'
+          nullable: true
+
+    HomeItemInfo:
+      type: object
+      required:
+        - id
+        - name
+        - type
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Home item identifier
+          example: "item-uuid-1"
+        name:
+          type: string
+          description: Item name
+          example: "Kitchen Sink Valve"
+        type:
+          $ref: '#/components/schemas/HomeItemType'
+
+    UploadedByInfo:
+      type: object
+      required:
+        - id
+        - name
+        - email
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: User identifier who uploaded the photo
+          example: "user-uuid-1"
+        name:
+          type: string
+          description: Uploader's name
+          example: "Jane Smith"
+        email:
+          type: string
+          format: email
+          description: Uploader's email
+          example: "jane@example.com"
+
+    # Support Request Schemas
+    CreateSupportRequest:
+      type: object
+      required:
+        - title
+        - description
+      properties:
+        homeId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Associated home ID
+          example: "home-uuid-1"
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Brief title of the support request
+          example: "Kitchen Sink Leak Repair"
+        description:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: Detailed description of the issue
+          example: "Main shutoff valve under kitchen sink is leaking. Need urgent repair."
+        priority:
+          $ref: '#/components/schemas/SupportRequestPriority'
+
+    CreateSupportRequestResponse:
+      type: object
+      required:
+        - id
+        - title
+        - status
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique support request identifier
+          example: "support-uuid-1"
+        title:
+          type: string
+          description: Request title
+          example: "Kitchen Sink Leak Repair"
+        status:
+          $ref: '#/components/schemas/SupportRequestStatus'
+        created_at:
+          type: string
+          format: date-time
+          description: Request creation timestamp (ISO 8601)
+          example: "2025-08-08T09:00:00"
+
+    SupportRequestResponse:
+      type: object
+      required:
+        - id
+        - title
+        - status
+        - priority
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique support request identifier
+          example: "support-uuid-1"
+        homeowner_id:
+          type: string
+          format: uuid
+          description: Homeowner who created the request
+          example: "user-uuid-homeowner"
+        home_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Associated home ID
+          example: "home-uuid-1"
+        title:
+          type: string
+          description: Request title
+          example: "Kitchen Sink Leak Repair"
+        description:
+          type: string
+          nullable: true
+          description: Detailed description
+          example: "Main shutoff valve under kitchen sink is leaking."
+        status:
+          $ref: '#/components/schemas/SupportRequestStatus'
+        priority:
+          $ref: '#/components/schemas/SupportRequestPriority'
+        assigned_expert_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: ID of assigned expert
+          example: "user-uuid-expert"
+        created_at:
+          type: string
+          format: date-time
+          example: "2025-08-08T09:00:00"
+        updated_at:
+          type: string
+          format: date-time
+          example: "2025-08-08T09:15:00"
+
+    SupportRequestStatus:
+      type: string
+      enum:
+        - open
+        - in_progress
+        - resolved
+        - closed
+        - cancelled
+      description: Current status of the support request
+      example: "open"
+
+    SupportRequestPriority:
+      type: string
+      enum:
+        - low
+        - medium
+        - high
+        - urgent
+      description: Priority level of the support request
+      example: "medium"
+
+    # Error Response Schemas
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: Human-readable error message
+          example: "Invalid UUID format. Must be a valid UUID"
+        code:
+          type: string
+          description: Machine-readable error code
+          example: "INVALID_UUID_FORMAT"
+        details:
+          type: object
+          additionalProperties: true
+          description: Additional error details
+          example:
+            field: "userId"
+            provided: "invalid-uuid"
+
+  responses:
+    # Success Responses
+    Created:
+      description: Resource created successfully
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              id:
+                type: string
+                format: uuid
+              message:
+                type: string
+
+    # Error Responses
+    BadRequest:
+      description: Bad request - Invalid input parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "Invalid UUID format. Must be a valid UUID"
+            code: "INVALID_UUID_FORMAT"
+
+    Unauthorized:
+      description: Unauthorized - Missing or invalid authentication token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "Missing or invalid Authorization header"
+            code: "UNAUTHORIZED"
+
+    Forbidden:
+      description: Forbidden - User lacks permission to access resource
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "User not authorized to access this resource"
+            code: "FORBIDDEN"
+
+    UserNotFound:
+      description: User not found in database
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "User not found"
+            code: "USER_NOT_FOUND"
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "An unexpected error occurred"
+            code: "INTERNAL_SERVER_ERROR"
+
+  examples:
+    # Home Examples
+    SingleHomeResponse:
+      summary: Single home with statistics
+      value:
+        id: "home-uuid-1"
+        address: "123 Main St, Anytown, ST 12345"
+        role: "owner"
+        created_at: "2025-08-01T10:00:00"
+        updated_at: "2025-08-07T15:30:00"
+        stats:
+          total_items: 25
+          total_photos: 48
+          emergency_items: 3
+
+    # Home Item Examples
+    UtilityControlItem:
+      summary: Utility control item example
+      value:
+        id: "item-uuid-1"
+        name: "Kitchen Sink Main Shutoff Valve"
+        type: "utility_control"
+        is_emergency: false
+        data:
+          location: "Under kitchen sink"
+          brand: "Kohler"
+          model: "K-1234"
+          installation_date: "2023-05-15"
+        created_at: "2025-08-02T14:00:00"
+        photo_count: 3
+        primary_photo_url: "https://s3.amazonaws.com/homepro-photos/signed-url"
+
+    # Photo Examples
+    PhotoWithDetails:
+      summary: Photo with complete metadata
+      value:
+        id: "photo-uuid-1"
+        file_name: "kitchen-valve-main.jpg"
+        caption: "Main shutoff valve under kitchen sink"
+        is_primary: true
+        created_at: "2025-08-07T10:00:00"
+        url: "https://s3.amazonaws.com/homepro-photos/signed-url-1"
+        home_item:
+          id: "item-uuid-1"
+          name: "Kitchen Sink Valve"
+          type: "utility_control"
+        uploaded_by:
+          id: "user-uuid-1"
+          name: "Jane Smith"
+          email: "jane@example.com"
+
+tags:
+  - name: Authentication
+    description: User authentication and session management
+  - name: Homes
+    description: Home management and statistics
+  - name: Home Items
+    description: Home inventory item management
+  - name: Photos
+    description: Photo management with S3 integration
+  - name: Support Requests
+    description: Service request lifecycle management
+
+externalDocs:
+  description: HomePro Backend Documentation
+  url: https://docs.homepro.com/api

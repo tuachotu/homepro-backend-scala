@@ -16,7 +16,9 @@ libraryDependencies ++= Seq(
   "com.google.firebase" % "firebase-admin" % "9.4.2",
   "org.postgresql" % "postgresql" % "42.7.4",
   "com.zaxxer" % "HikariCP" % "5.1.0",
-  "ch.megard" %% "akka-http-cors" % "1.1.3"
+  "ch.megard" %% "akka-http-cors" % "1.1.3",
+  "software.amazon.awssdk" % "s3" % "2.27.21",                                          // AWS S3 SDK
+  "software.amazon.awssdk" % "url-connection-client" % "2.27.21"                       // HTTP client for S3
 )
 
 // Compiler options
