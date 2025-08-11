@@ -69,14 +69,14 @@ object S3ServiceTest {
         homePhotoUrl.contains(s"$homeId/$fileName"),  
         homeItemPhotoUrl.contains(s"$homeItemId/$fileName"),
         directUrl.contains("legacy/old_photo.jpg"),
-        userPhotoUrl.contains("X-Amz-Expires=3600") // 1 hour expiration
+        userPhotoUrl.contains("X-Amz-Expires=86400") // 24 hour expiration (configurable)
       ).forall(identity)
       
       if (allUrlsValid) {
         logger.info("✅ SUCCESS: All S3 URL generation tests PASSED")
         logger.info("✅ Context-based path construction working correctly")
         logger.info("✅ AWS S3 connectivity confirmed")
-        logger.info("✅ 1-hour expiration configured correctly")
+        logger.info("✅ 24-hour expiration configured correctly")
       } else {
         logger.error("❌ FAILED: One or more S3 URL tests failed")
       }

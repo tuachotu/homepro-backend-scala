@@ -26,6 +26,7 @@ class S3Service()(implicit ec: ExecutionContext) {
   
   private val bucketName = ConfigUtil.getString("aws.s3.bucket", "homepro-photos")
   private val region = Region.of(ConfigUtil.getString("aws.region", "us-east-1"))
+  private val presignedUrlExpirationHours = ConfigUtil.getInt("aws.s3.presigned-url-expiration-hours", 24)
   
   // Initialize S3 presigner with default credentials
   private val s3Presigner: S3Presigner = S3Presigner.builder()
@@ -33,7 +34,7 @@ class S3Service()(implicit ec: ExecutionContext) {
     .build()
     
   /**
-   * Generates a presigned URL for a given S3 key with 1-hour expiration.
+   * Generates a presigned URL for a given S3 key with configurable expiration.
    * 
    * @param s3Key The full S3 key/path for the object
    * @return Future containing the presigned URL
@@ -47,7 +48,7 @@ class S3Service()(implicit ec: ExecutionContext) {
           .build()
           
         val presignRequest = GetObjectPresignRequest.builder()
-          .signatureDuration(Duration.ofHours(1)) // 1 hour expiration
+          .signatureDuration(Duration.ofHours(presignedUrlExpirationHours))
           .getObjectRequest(getObjectRequest)
           .build()
           
@@ -55,7 +56,9 @@ class S3Service()(implicit ec: ExecutionContext) {
         presignedUrl.url().toString
       } match {
         case Success(url) =>
-          logger.info(s"Generated pre-signed URL for S3 key: $s3Key")
+          logger.info(s"Generated pre-signed URL for S3 key: $s3Key", 
+            "expirationHours", presignedUrlExpirationHours, 
+            "bucket", bucketName)
           url
         case Failure(exception) =>
           logger.error(s"Failed to generate pre-signed URL for S3 key: $s3Key", exception)
