@@ -17,16 +17,6 @@ case class Photo(
   createdAt: LocalDateTime
 )
 
-case class HomeItem(
-  id: UUID,
-  homeId: UUID,
-  name: String,
-  itemType: String,
-  isEmergency: Boolean,
-  data: String, // JSONB as String
-  createdBy: Option[UUID],
-  createdAt: LocalDateTime
-)
 
 case class PhotoWithDetails(
   photo: Photo,

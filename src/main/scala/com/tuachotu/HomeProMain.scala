@@ -4,6 +4,7 @@ import com.tuachotu.controller.UserController
 import com.tuachotu.controller.SupportRequestController
 import com.tuachotu.controller.PhotoController
 import com.tuachotu.controller.HomeController
+import com.tuachotu.controller.HomeItemController
 import com.tuachotu.repository.UserRepository
 import com.tuachotu.service.UserService
 import com.tuachotu.util.{ConfigUtil, FirebaseAuthHandler, LoggerUtil}
@@ -12,7 +13,7 @@ import com.tuachotu.util.LoggerUtil.Logger
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives._
-import akka.stream.ActorMaterializer
+import akka.stream.{ActorMaterializer, Materializer}
 import java.util.UUID
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration.*
@@ -29,6 +30,7 @@ object HomeProMain {
   @main def main(args: Array[String]): Unit = {
     implicit val system: ActorSystem = ActorSystem("homepro-system")
     implicit val ec: ExecutionContextExecutor = system.dispatcher
+    implicit val materializer: Materializer = Materializer(system)
 
     implicit  val logger: Logger = LoggerUtil.getLogger(getClass)
     // Add all the routes here
@@ -36,8 +38,9 @@ object HomeProMain {
     val supportRequestController = new SupportRequestController()
     val photoController = new PhotoController()
     val homeController = new HomeController()
+    val homeItemController = new HomeItemController()
     // Combine all user-related routes
-    val routes = userController.routes ~ supportRequestController.routes ~ photoController.routes ~ homeController.routes
+    val routes = userController.routes ~ supportRequestController.routes ~ photoController.routes ~ homeController.routes ~ homeItemController.routes
     Http().newServerAt("0.0.0.0", ConfigUtil.getInt("server.port", 2107)).bind(routes)
     Await.result(system.whenTerminated, Duration.Inf)
   }

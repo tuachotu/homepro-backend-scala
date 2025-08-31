@@ -1,7 +1,7 @@
 package com.tuachotu.repository
 
 import com.tuachotu.db.DatabaseConnection
-import com.tuachotu.model.db.HomeItemEnhanced
+import com.tuachotu.model.db.{HomeItem, HomeItemEnhanced, HomeItemType}
 import com.tuachotu.model.response.HomeStatsResponse
 import com.tuachotu.util.LoggerUtil
 import com.tuachotu.util.LoggerUtil.Logger
@@ -14,6 +14,33 @@ import scala.util.{Try, Using}
 
 class HomeItemRepository()(implicit ec: ExecutionContext) {
   implicit private val logger: Logger = LoggerUtil.getLogger(getClass)
+
+  def createHomeItem(homeItem: HomeItem): Future[HomeItem] = {
+    val sql = """
+      INSERT INTO home_items (id, home_id, name, type, is_emergency, data, created_by, created_at) 
+      VALUES (?, ?, ?, ?::home_item_type, ?, ?::jsonb, ?, ?)
+    """
+
+    val params = List(
+      homeItem.id,
+      homeItem.homeId,
+      homeItem.name,
+      HomeItemType.toString(homeItem.itemType),
+      homeItem.isEmergency,
+      homeItem.data,
+      homeItem.createdBy.orNull,
+      Timestamp.valueOf(homeItem.createdAt)
+    )
+
+    DatabaseConnection.executeUpdate(sql, params*).map { rowsAffected =>
+      if (rowsAffected > 0) {
+        logger.info(s"Created home item with ID: ${homeItem.id} for home: ${homeItem.homeId}")
+        homeItem
+      } else {
+        throw new RuntimeException("Failed to create home item")
+      }
+    }
+  }
 
   def findItemsByHomeId(
     homeId: UUID, 

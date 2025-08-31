@@ -6,12 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Core SBT Commands
 - `sbt compile` - Compile the Scala 3.5.0 project
-- `sbt run` - Run the application (starts HTTP server on port 2101)
+- `sbt run` - Run the application (starts HTTP server on port 2107)
 - `sbt assembly` - Create fat JAR for deployment
 - `sbt test` - Run tests (when available)
 
 ### Running the Application
-The main class is `com.tuachotu.HomeProMain` and runs an Akka HTTP server on port 2101.
+The main class is `com.tuachotu.HomeProMain` and runs an Akka HTTP server on port 2107 (configurable via `server.port`).
 
 ## Required Environment Variables
 
@@ -24,7 +24,8 @@ The main class is `com.tuachotu.HomeProMain` and runs an Akka HTTP server on por
 - `FIREBASE_CONFIG_PATH` - Path to Firebase service account JSON file (required)
 
 ### AWS S3 (Photo Storage)
-AWS credentials should be configured via standard AWS credential chain (environment variables, IAM roles, etc.)
+- AWS credentials should be configured via standard AWS credential chain (environment variables, IAM roles, etc.)
+- `AWS_S3_PRESIGNED_URL_EXPIRATION_HOURS` - URL expiration time (default: 24 hours)
 
 ## Architecture Overview
 
@@ -41,14 +42,16 @@ This is a **Scala 3** backend using **Akka HTTP** with **direct SQL queries** (n
 ### Package Structure
 ```
 com.tuachotu/
+├── HomeProMain.scala    # Application entry point
 ├── controller/          # HTTP route handlers (UserController, PhotoController, HomeController, SupportRequestController)
 ├── service/            # Business logic (UserService, PhotoService, HomeService, S3Service, etc.)
 ├── repository/         # Data access with raw SQL (UserRepository, PhotoRepository, HomeRepository, etc.)
 ├── model/
 │   ├── db/            # Database case classes (Users, Photo, Home, SupportRequest, etc.)
-│   ├── request/       # API request models
+│   ├── request/       # API request models  
 │   └── response/      # API response models
 ├── util/              # Utilities (ConfigUtil, LoggerUtil, FirebaseAuthHandler, TimeUtil, etc.)
+├── conf/              # Configuration constants
 └── db/                # Database connection management (DatabaseConnection)
 ```
 
@@ -66,6 +69,7 @@ com.tuachotu/
 - `user_roles` - Many-to-many user-role relationships
 - `support_requests` - Service request lifecycle management
 - `homes` - Home/property information
+- `home_items` - Individual items within homes
 - `photos` - Photo metadata with S3 key references
 
 All tables support **soft deletion** with `deleted_at` timestamps.
@@ -96,7 +100,10 @@ Photos use a context-based S3 storage system implemented in the recent PR:
 Uses Typesafe Config with environment variable overrides. Main config in `src/main/resources/application.conf`.
 
 ### Logging
-Structured JSON logging using SLF4J + Logback + Logstash encoder. Use `LoggerUtil.getLogger(getClass)` for consistent logging.
+Structured JSON logging using SLF4J + Logback + Logstash encoder:
+- Use `implicit val logger: Logger = LoggerUtil.getLogger(getClass)` for logger initialization
+- Logging methods support key-value pairs: `LoggerUtil.info("message", "key1", value1, "key2", value2)`
+- Available methods: `info()`, `error()`, `warn()`, `debug()` with structured logging support
 
 ### Error Handling
 Custom `HomeProException` for business logic errors. Controllers handle exceptions and return appropriate HTTP status codes.

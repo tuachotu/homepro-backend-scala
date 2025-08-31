@@ -2,17 +2,50 @@ openapi: 3.0.3
 info:
   title: HomePro Backend API
   description: |
-    A comprehensive home services platform backend API built with Scala 3, Akka HTTP, and PostgreSQL.
+    HomePro Backend API for managing homes, home items, photos, support requests, and users.
     
-    ## Features
-    - 🔐 Firebase Authentication with JWT tokens
-    - 🏠 Home and home item management
-    - 📸 Photo management with S3 pre-signed URLs
-    - 🎫 Support request lifecycle management
-    - 👥 User and role-based access control
+    ## Architecture
+    - **Scala 3.5.0** backend with **Akka HTTP**
+    - **PostgreSQL** database with direct SQL queries
+    - **Firebase Admin SDK** for authentication
+    - **AWS S3** for photo storage with context-based organization
+    - **HikariCP** connection pooling
     
     ## Authentication
-    Most endpoints require Firebase JWT authentication via the `Authorization: Bearer {token}` header.
+    All protected endpoints require Firebase JWT token in Authorization header:
+    `Authorization: Bearer <firebase-jwt-token>`
+    
+    ## S3 Storage Structure
+    Photos are organized in S3 with context-based paths:
+    - Home Item Photos: `{home_item_id}/{filename}`
+    - Home Photos: `{home_id}/{filename}`
+    - User Photos: `{user_id}/{filename}`
+    
+    ## Key Features Implemented
+    - ✅ Home creation with one-home restriction per user
+    - ✅ Home item creation with type validation
+    - ✅ Photo upload with S3 integration and database linking
+    - ✅ Context-based S3 organization for efficient access
+    - ✅ Firebase authentication and authorization
+    - ✅ Comprehensive error handling and logging
+    - ✅ Support request management
+    - ✅ User and home management with JSONB metadata support
+    - ✅ CORS support with origin restrictions for security
+    
+    ## CORS Configuration
+    All endpoints support CORS (Cross-Origin Resource Sharing) to enable requests from web browsers.
+    
+    **Supported CORS Headers:**
+    - `Access-Control-Allow-Origin:` Restricted to `http://localhost:3000` and `https://home-owners.tech`
+    - `Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS`
+    - `Access-Control-Allow-Headers: Authorization, Content-Type, X-Requested-With`
+    - `Access-Control-Max-Age: 86400` (24 hours preflight cache)
+    - `Access-Control-Allow-Credentials: true` (for authenticated requests)
+    
+    **Preflight Requests:**
+    - Browser will send OPTIONS request for complex requests
+    - Server responds with appropriate CORS headers
+    - Actual request follows if preflight succeeds
   version: 1.0.0
   contact:
     name: HomePro API Support
@@ -22,10 +55,29 @@ info:
     url: https://opensource.org/licenses/MIT
 
 servers:
-  - url: http://localhost:2107
-    description: Local development server
-  - url: https://api.homepro.com
-    description: Production server
+  - url: "{protocol}://{host}:{port}"
+    description: Configurable server endpoint
+    variables:
+      protocol:
+        enum:
+          - http
+          - https
+        default: http
+        description: Protocol scheme (http for development, https for production)
+      host:
+        default: localhost
+        description: Server hostname or IP address
+        examples:
+          - localhost
+          - api.homepro.com
+          - 192.168.1.100
+      port:
+        default: "2107"
+        description: Server port number
+        examples:
+          - "2107"
+          - "8080"
+          - "443"
 
 security:
   - FirebaseAuth: []
@@ -92,6 +144,7 @@ paths:
                   $ref: '#/components/schemas/HomeResponse'
               example:
                 - id: "home-uuid-1"
+                  name: "My Beautiful Home"
                   address: "123 Main St, Anytown, ST 12345"
                   role: "owner"
                   created_at: "2025-08-01T10:00:00"
@@ -108,6 +161,118 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/UserNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    options:
+      tags:
+        - Homes
+      summary: CORS preflight for homes endpoint
+      description: |
+        Handles CORS preflight requests for the homes endpoint.
+        Browsers automatically send this request before actual GET/POST requests.
+      responses:
+        '200':
+          $ref: '#/components/responses/CorsPreflightResponse'
+
+    post:
+      tags:
+        - Homes
+      summary: Create a new home
+      description: |
+        Creates a new home for the authenticated user. **Important:** Users are currently 
+        restricted to owning only ONE home. If a user already has a home, this endpoint 
+        will return a 409 Conflict error.
+        
+        **Business Rules:**
+        - One home per user restriction (will be relaxed in future versions)
+        - First home is automatically set as primary (`isPrimary: true`)
+        - Creating user is automatically assigned "owner" role
+        - Metadata field supports flexible JSONB data for home attributes
+        
+        **Home Ownership:**
+        - Creates both home record and home_owners relationship
+        - Assigns "owner" role to creating user
+        - Enables full access to home management features
+      security:
+        - FirebaseAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddHomeRequest'
+            examples:
+              basic_home:
+                summary: Basic Home Creation
+                description: Minimal home creation with just name
+                value:
+                  name: "My Beautiful Home"
+              complete_home:
+                summary: Complete Home with Metadata
+                description: Full home creation with address and metadata
+                value:
+                  name: "My Family Home"
+                  address: "123 Main Street, Anytown, ST 12345"
+                  metadata:
+                    type: "single_family"
+                    year_built: "2020"
+                    square_footage: "2500"
+                    bedrooms: "4"
+                    bathrooms: "3"
+                    garage: "2_car"
+              apartment_home:
+                summary: Apartment/Condo Home
+                description: Example for apartment or condo
+                value:
+                  name: "Downtown Condo"
+                  address: "456 High Rise Blvd, Unit 12B, City, ST 54321"
+                  metadata:
+                    type: "condo"
+                    floor: "12"
+                    unit: "12B"
+                    hoa_fee: "350"
+                    amenities: "gym,pool,concierge"
+      responses:
+        '201':
+          description: Home created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AddHomeResponse'
+              example:
+                id: "550e8400-e29b-41d4-a716-446655440000"
+                name: "My Beautiful Home"
+                address: "123 Main Street, Anytown, ST 12345"
+                isPrimary: true
+                createdAt: "2025-08-11T21:30:00"
+                message: "Home created successfully"
+        '400':
+          description: Bad request - Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing_name:
+                  summary: Missing required field
+                  value:
+                    error: "Missing required field: name"
+                invalid_json:
+                  summary: Invalid JSON format
+                  value:
+                    error: "Invalid JSON format: Unexpected character..."
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Conflict - User already has a home
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "User already has a home. Only one home per user is currently allowed."
+                code: "ONE_HOME_RESTRICTION"
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -130,7 +295,7 @@ paths:
           schema:
             type: string
             format: uuid
-          example: "home-uuid-1"
+          example: "ace55e40-b56d-43c1-b738-5eee8f1ccdf1"
         - name: type
           in: query
           required: false
@@ -173,24 +338,146 @@ paths:
                 items:
                   $ref: '#/components/schemas/HomeItemResponse'
               example:
-                - id: "item-uuid-1"
-                  name: "Kitchen Sink Main Shutoff Valve"
-                  type: "utility_control"
+                - id: "d26d981c-0c6e-41ae-b9f9-8a9ad6e66c94"
+                  name: "Kitchen Refrigerator"
+                  type: "appliance"
                   is_emergency: false
                   data:
-                    location: "Under kitchen sink"
-                    brand: "Kohler"
-                    model: "K-1234"
-                    installation_date: "2023-05-15"
-                  created_at: "2025-08-02T14:00:00"
-                  photo_count: 3
-                  primary_photo_url: "https://s3.amazonaws.com/homepro-photos/signed-url"
+                    brand: "Samsung"
+                    model: "RF28T5001SG"
+                    purchaseDate: "2023-01-15"
+                    warranty: "2 years"
+                  created_at: "2025-08-11T12:00:00"
+                  photo_count: 1
+                  primary_photo_url: "https://homepro-photos.s3.amazonaws.com/presigned-url"
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    options:
+      tags:
+        - Home Items
+      summary: CORS preflight for home items
+      description: |
+        Handles CORS preflight requests for the home items endpoint.
+        Browsers automatically send this request before actual POST requests.
+      parameters:
+        - name: homeId
+          in: path
+          required: true
+          description: UUID of the home
+          schema:
+            type: string
+            format: uuid
+          example: "ace55e40-b56d-43c1-b738-5eee8f1ccdf1"
+      responses:
+        '200':
+          $ref: '#/components/responses/CorsPreflightResponse'
+
+    post:
+      tags:
+        - Home Items  
+      summary: Create a new home item
+      description: |
+        Creates a new item for a specific home. The item will be associated with the home
+        and can store flexible JSONB data for item-specific information.
+        
+        **Supported Item Types:**
+        - `room` - Living spaces (bedroom, kitchen, etc.)
+        - `utility_control` - Valves, switches, breakers  
+        - `appliance` - Household appliances
+        - `structural` - Structural elements (beams, foundation)
+        - `observation` - Notes and observations
+        - `wiring` - Electrical wiring and components
+        - `sensor` - Smart sensors and monitoring devices
+        - `other` - Uncategorized items
+      security:
+        - FirebaseAuth: []
+      parameters:
+        - name: homeId
+          in: path
+          required: true
+          description: UUID of the home to add the item to
+          schema:
+            type: string
+            format: uuid
+          example: "ace55e40-b56d-43c1-b738-5eee8f1ccdf1"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddHomeItemRequest'
+            examples:
+              kitchen_appliance:
+                summary: Kitchen Appliance Example
+                description: Example of adding a kitchen refrigerator
+                value:
+                  name: "Kitchen Refrigerator"
+                  itemType: "appliance"
+                  isEmergency: false
+                  data: '{"brand": "Samsung", "model": "RF28T5001SG", "purchaseDate": "2023-01-15", "warranty": "2 years"}'
+              emergency_utility:
+                summary: Emergency Utility Control  
+                description: Example of an emergency utility shutoff
+                value:
+                  name: "Main Water Shutoff Valve"
+                  itemType: "utility_control"
+                  isEmergency: true
+                  data: '{"location": "Basement near water heater", "type": "ball valve", "size": "1 inch"}'
+              room_item:
+                summary: Room Item
+                description: Example of a room entry
+                value:
+                  name: "Master Bedroom"
+                  itemType: "room"  
+                  isEmergency: false
+                  data: '{"size": "200 sq ft", "windows": 2, "flooring": "hardwood"}'
+      responses:
+        '201':
+          description: Home item created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AddHomeItemResponse'
+              example:
+                id: "d26d981c-0c6e-41ae-b9f9-8a9ad6e66c94"
+                homeId: "ace55e40-b56d-43c1-b738-5eee8f1ccdf1"
+                name: "Kitchen Refrigerator"
+                type: "appliance"
+                isEmergency: false
+                createdAt: "2025-08-11T12:00:00"
+                message: "Home item created successfully"
+        '400':
+          description: Bad request - Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_item_type:
+                  summary: Invalid item type
+                  value:
+                    error: "Invalid item type: invalid_type"
+                missing_name:
+                  summary: Missing required field
+                  value:
+                    error: "Missing required field: name"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Forbidden - User doesn't have access to this home
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "User does not have access to this home"
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -202,7 +489,11 @@ paths:
       summary: Get photos with metadata and pre-signed URLs
       description: |
         Retrieves photos for a specific home or home item with complete metadata
-        and secure pre-signed S3 URLs for image access (valid for 1 hour).
+        and secure pre-signed S3 URLs for image access (valid for 24 hours by default).
+        
+        **Requirements:**
+        - Exactly one of `homeId` or `homeItemId` must be provided
+        - User must have access to the specified home/item
       security:
         - FirebaseAuth: []
       parameters:
@@ -213,7 +504,7 @@ paths:
           schema:
             type: string
             format: uuid
-          example: "home-uuid-1"
+          example: "ace55e40-b56d-43c1-b738-5eee8f1ccdf1"
         - name: homeItemId
           in: query
           required: false
@@ -221,7 +512,7 @@ paths:
           schema:
             type: string
             format: uuid
-          example: "item-uuid-1"
+          example: "d26d981c-0c6e-41ae-b9f9-8a9ad6e66c94"
       responses:
         '200':
           description: List of photos with metadata and pre-signed URLs
@@ -233,25 +524,184 @@ paths:
                   $ref: '#/components/schemas/PhotoResponse'
               example:
                 - id: "photo-uuid-1"
-                  file_name: "kitchen-valve-main.jpg"
-                  caption: "Main shutoff valve under kitchen sink"
-                  is_primary: true
-                  created_at: "2025-08-07T10:00:00"
-                  url: "https://s3.amazonaws.com/homepro-photos/signed-url-1"
+                  file_name: "IMG_3372.JPG"
+                  caption: null
+                  is_primary: false
+                  created_at: "2025-08-11T15:30:00"
+                  url: "https://homepro-photos.s3.amazonaws.com/d26d981c-0c6e-41ae-b9f9-8a9ad6e66c94/IMG_3372.JPG?presigned-params"
                   home_item:
-                    id: "item-uuid-1"
-                    name: "Kitchen Sink Valve"
-                    type: "utility_control"
+                    id: "d26d981c-0c6e-41ae-b9f9-8a9ad6e66c94"
+                    name: "Kitchen Refrigerator"
+                    type: "appliance"
                   uploaded_by:
-                    id: "user-uuid-1"
-                    name: "Jane Smith"
-                    email: "jane@example.com"
+                    id: "ace55e40-b56d-43c1-b738-5eee8f1ccdf1"
+                    name: "Test User"
+                    email: "test@example.com"
         '400':
-          $ref: '#/components/responses/BadRequest'
+          description: Bad request - Missing or invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing_params:
+                  summary: Missing required parameters
+                  value:
+                    error: "At least one of homeId or homeItemId must be provided"
+                both_params:
+                  summary: Both parameters provided
+                  value:
+                    error: "Only one of homeId or homeItemId should be provided, not both"
         '401':
           $ref: '#/components/responses/Unauthorized'
         '500':
           $ref: '#/components/responses/InternalError'
+
+    options:
+      tags:
+        - Photos
+      summary: CORS preflight for photo operations
+      description: |
+        Handles CORS preflight requests for photo endpoints.
+        Browsers automatically send this request before actual GET/POST requests.
+      parameters:
+        - name: homeId
+          in: query
+          required: false
+          description: UUID of the home (for preflight validation)
+          schema:
+            type: string
+            format: uuid
+        - name: homeItemId
+          in: query
+          required: false
+          description: UUID of the home item (for preflight validation)
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          $ref: '#/components/responses/CorsPreflightResponse'
+
+    post:
+      tags:
+        - Photos
+      summary: Upload photo for home item
+      description: |
+        Upload a photo and associate it with a specific home item.
+        
+        **Upload Flow:**
+        1. Client uploads photo via multipart/form-data with form field name `photo`
+        2. Photo is uploaded to S3 with context-based path: `{homeItemId}/{filename}`
+        3. Photo metadata is stored in database with `homeItemId` association only
+        4. Returns presigned URL for immediate photo access
+        
+        **File Requirements:**
+        - Form field name must be: `photo`
+        - Supported formats: JPEG, PNG, GIF, WebP
+        - Recommended max file size: 10MB (configurable on server)
+        
+        **S3 Storage:**
+        - Bucket: `homepro-photos` (configurable)
+        - Path: `{homeItemId}/{original-filename}`
+        - Database stores only filename (context-based architecture)
+        
+        **Database Constraint:**
+        - Photos must have exactly ONE of: home_id, home_item_id, or user_id set
+        - For home item photos, only home_item_id is set
+      security:
+        - FirebaseAuth: []
+      parameters:
+        - name: homeItemId
+          in: query
+          required: true
+          description: UUID of the home item to associate photo with
+          schema:
+            type: string
+            format: uuid
+          example: "d26d981c-0c6e-41ae-b9f9-8a9ad6e66c94"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - photo
+              properties:
+                photo:
+                  type: string
+                  format: binary
+                  description: Photo file to upload
+            encoding:
+              photo:
+                contentType: image/jpeg, image/png, image/gif, image/webp
+            examples:
+              photo_upload:
+                summary: Photo Upload Example  
+                description: Example of uploading a photo file
+                value:
+                  photo: "[binary file data - IMG_3372.JPG]"
+      responses:
+        '201':
+          description: Photo uploaded successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PhotoUploadResponse'
+              example:
+                id: "photo-uuid-generated"
+                homeItemId: "d26d981c-0c6e-41ae-b9f9-8a9ad6e66c94"
+                fileName: "IMG_3372.JPG"
+                s3Key: "d26d981c-0c6e-41ae-b9f9-8a9ad6e66c94/IMG_3372.JPG"
+                contentType: "image/jpeg"
+                caption: null
+                message: "Photo uploaded successfully"
+                photoUrl: "https://homepro-photos.s3.amazonaws.com/d26d981c-0c6e-41ae-b9f9-8a9ad6e66c94/IMG_3372.JPG?presigned-params"
+        '400':
+          description: Bad request - Invalid input or missing file
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing_file:
+                  summary: No photo file provided
+                  value:
+                    error: "No photo file found in request"
+                invalid_home_item:
+                  summary: Invalid home item ID
+                  value:
+                    error: "Invalid homeItemId format. Must be a valid UUID"
+                db_constraint_error:
+                  summary: Database constraint violation
+                  value:
+                    error: "ERROR: Exactly one of home_id, home_item_id, or user_id must be set on photos"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Forbidden - User doesn't have access to this home item
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "User does not have access to this home item"
+        '500':
+          description: Internal server error - S3 upload or database failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                s3_error:
+                  summary: S3 upload failure
+                  value:
+                    error: "Failed to upload file to S3"
+                db_error:
+                  summary: Database save failure
+                  value:
+                    error: "Failed to save photo to database"
 
   # Support Request APIs
   /api/support-requests:
@@ -379,6 +829,11 @@ components:
           format: uuid
           description: Unique home identifier
           example: "home-uuid-1"
+        name:
+          type: string
+          nullable: true
+          description: Home name/title
+          example: "My Beautiful Home"
         address:
           type: string
           nullable: true
@@ -425,7 +880,142 @@ components:
           description: Number of items marked as emergency
           example: 3
 
+    AddHomeRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Name/title for the home
+          example: "My Beautiful Home"
+        address:
+          type: string
+          nullable: true
+          maxLength: 500
+          description: Physical address of the home
+          example: "123 Main Street, Anytown, ST 12345"
+        metadata:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: string
+          description: |
+            Flexible metadata for home attributes stored as JSONB.
+            Can include any key-value pairs for home characteristics.
+          example:
+            type: "single_family"
+            year_built: "2020"
+            square_footage: "2500"
+            bedrooms: "4"
+            bathrooms: "3"
+
+    AddHomeResponse:
+      type: object
+      required:
+        - id
+        - name
+        - isPrimary
+        - createdAt
+        - message
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Generated UUID for the new home
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        name:
+          type: string
+          description: Name of the created home
+          example: "My Beautiful Home"
+        address:
+          type: string
+          nullable: true
+          description: Address of the created home
+          example: "123 Main Street, Anytown, ST 12345"
+        isPrimary:
+          type: boolean
+          description: Whether this is the user's primary home (always true for first home)
+          example: true
+        createdAt:
+          type: string
+          format: date-time
+          description: Home creation timestamp (ISO 8601)
+          example: "2025-08-11T21:30:00"
+        message:
+          type: string
+          description: Success message
+          example: "Home created successfully"
+
     # Home Item Schemas
+    AddHomeItemRequest:
+      type: object
+      required:
+        - name
+        - itemType
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Name/title of the home item
+          example: "Kitchen Refrigerator"
+        itemType:
+          $ref: '#/components/schemas/HomeItemType'
+        isEmergency:
+          type: boolean
+          default: false
+          description: Whether this item requires emergency attention
+          example: false
+        data:
+          type: string
+          nullable: true
+          description: Additional item data as JSON string (stored as JSONB in database)
+          example: '{"brand": "Samsung", "model": "RF28T5001SG", "warranty": "2 years"}'
+
+    AddHomeItemResponse:
+      type: object
+      required:
+        - id
+        - homeId
+        - name
+        - type
+        - isEmergency
+        - createdAt
+        - message
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Generated UUID for the new home item
+          example: "d26d981c-0c6e-41ae-b9f9-8a9ad6e66c94"
+        homeId:
+          type: string
+          format: uuid
+          description: UUID of the home this item belongs to
+          example: "ace55e40-b56d-43c1-b738-5eee8f1ccdf1"
+        name:
+          type: string
+          description: Name of the created item
+          example: "Kitchen Refrigerator"
+        type:
+          $ref: '#/components/schemas/HomeItemType'
+        isEmergency:
+          type: boolean
+          description: Emergency status of the item
+          example: false
+        createdAt:
+          type: string
+          format: date-time
+          description: Item creation timestamp (ISO 8601)
+          example: "2025-08-11T12:00:00"
+        message:
+          type: string
+          description: Success message
+          example: "Home item created successfully"
+
     HomeItemResponse:
       type: object
       required:
@@ -588,6 +1178,54 @@ components:
           description: Uploader's email
           example: "jane@example.com"
 
+    PhotoUploadResponse:
+      type: object
+      required:
+        - id
+        - homeItemId
+        - fileName
+        - s3Key
+        - message
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Generated UUID for the uploaded photo
+          example: "photo-uuid-generated"
+        homeItemId:
+          type: string
+          format: uuid
+          description: UUID of the home item this photo is associated with
+          example: "d26d981c-0c6e-41ae-b9f9-8a9ad6e66c94"
+        fileName:
+          type: string
+          description: Original filename of the uploaded photo
+          example: "IMG_3372.JPG"
+        s3Key:
+          type: string
+          description: Full S3 key path where the photo is stored
+          example: "d26d981c-0c6e-41ae-b9f9-8a9ad6e66c94/IMG_3372.JPG"
+        contentType:
+          type: string
+          nullable: true
+          description: MIME type of the uploaded file
+          example: "image/jpeg"
+        caption:
+          type: string
+          nullable: true
+          description: Photo caption (currently always null for uploads)
+          example: null
+        message:
+          type: string
+          description: Success message
+          example: "Photo uploaded successfully"
+        photoUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: Presigned S3 URL for immediate photo access (valid for 24 hours)
+          example: "https://homepro-photos.s3.amazonaws.com/d26d981c-0c6e-41ae-b9f9-8a9ad6e66c94/IMG_3372.JPG?presigned-params"
+
     # Support Request Schemas
     CreateSupportRequest:
       type: object
@@ -739,6 +1377,31 @@ components:
             provided: "invalid-uuid"
 
   responses:
+    # CORS Responses
+    CorsPreflightResponse:
+      description: Successful CORS preflight response
+      headers:
+        Access-Control-Allow-Origin:
+          description: Allowed origins for CORS requests
+          schema:
+            type: string
+            example: "*"
+        Access-Control-Allow-Methods:
+          description: Allowed HTTP methods for CORS requests
+          schema:
+            type: string
+            example: "GET, POST, PUT, DELETE, OPTIONS"
+        Access-Control-Allow-Headers:
+          description: Allowed headers for CORS requests
+          schema:
+            type: string
+            example: "Authorization, Content-Type, X-Requested-With"
+        Access-Control-Max-Age:
+          description: How long preflight response can be cached (seconds)
+          schema:
+            type: integer
+            example: 86400
+
     # Success Responses
     Created:
       description: Resource created successfully
@@ -810,6 +1473,7 @@ components:
       summary: Single home with statistics
       value:
         id: "home-uuid-1"
+        name: "My Beautiful Home"
         address: "123 Main St, Anytown, ST 12345"
         role: "owner"
         created_at: "2025-08-01T10:00:00"
@@ -861,9 +1525,13 @@ tags:
   - name: Homes
     description: Home management and statistics
   - name: Home Items
-    description: Home inventory item management
+    description: |
+      Home inventory item management with CORS support.
+      All endpoints support cross-origin requests from web browsers.
   - name: Photos
-    description: Photo management with S3 integration
+    description: |
+      Photo management with S3 integration and CORS support.
+      File uploads via multipart/form-data with automatic preflight handling.
   - name: Support Requests
     description: Service request lifecycle management
 

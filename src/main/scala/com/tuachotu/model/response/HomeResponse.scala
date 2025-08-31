@@ -10,6 +10,7 @@ case class HomeStatsResponse(
 
 case class HomeResponse(
   id: String,
+  name: Option[String],
   address: Option[String],
   role: String,
   created_at: String,
@@ -30,7 +31,7 @@ case class HomeItemResponse(
 
 object HomeResponseProtocol extends DefaultJsonProtocol {
   implicit val homeStatsResponseFormat: RootJsonFormat[HomeStatsResponse] = jsonFormat3(HomeStatsResponse.apply)
-  implicit val homeResponseFormat: RootJsonFormat[HomeResponse] = jsonFormat6(HomeResponse.apply)
+  implicit val homeResponseFormat: RootJsonFormat[HomeResponse] = jsonFormat7(HomeResponse.apply)
   
   // Custom JSON format for Map[String, Any] to handle JSONB data
   implicit val anyFormat: JsonFormat[Any] = new JsonFormat[Any] {

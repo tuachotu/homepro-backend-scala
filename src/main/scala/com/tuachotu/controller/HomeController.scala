@@ -6,11 +6,15 @@ import akka.http.scaladsl.model._
 import akka.http.scaladsl.model.StatusCodes
 import com.tuachotu.service.{HomeService, HomeItemService, UserService, S3Service}
 import com.tuachotu.repository.{HomeRepository, HomeItemRepository, UserRepository}
-import com.tuachotu.model.response.HomeResponseProtocol
+import com.tuachotu.model.request.{AddHomeRequest, AddHomeRequestJsonProtocol}
+import com.tuachotu.model.response.{HomeResponseProtocol, AddHomeResponseProtocol}
 import com.tuachotu.util.{FirebaseAuthHandler, LoggerUtil, UnauthorizedAccessException, UserNotFoundException}
 import com.tuachotu.util.LoggerUtil.Logger
 import spray.json._
 import ch.megard.akka.http.cors.scaladsl.CorsDirectives._
+import ch.megard.akka.http.cors.scaladsl.settings.CorsSettings
+import ch.megard.akka.http.cors.scaladsl.model.HttpOriginMatcher
+import akka.http.scaladsl.model.headers.HttpOrigin
 
 import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
@@ -29,14 +33,31 @@ class HomeController()(implicit ec: ExecutionContext) {
   private val userService = new UserService(userRepository)
 
   import HomeResponseProtocol._
+  import AddHomeRequestJsonProtocol._
+  import AddHomeResponseProtocol._
 
-  def homesRoute: Route = cors() {
+  // Define CORS settings with allowed origins
+  val corsSettings: CorsSettings = CorsSettings.defaultSettings
+    .withAllowedOrigins(
+      HttpOriginMatcher(
+        HttpOrigin("http://localhost:3000"),
+        HttpOrigin("https://home-owners.tech")
+      )
+    )
+    .withAllowCredentials(true)
+
+  def homesRoute: Route = cors(corsSettings) {
     path("api" / "homes") {
       get {
         optionalHeaderValueByName("Authorization") {
           case Some(authHeader) if authHeader.startsWith("Bearer ") =>
             val token = authHeader.substring(7)
             parameters("userId".optional) { userIdOpt =>
+              
+              // Log incoming request
+              logger.info("GET /api/homes request received",
+                "userId", userIdOpt.getOrElse("not_provided"),
+                "hasAuthToken", "true")
               
               userIdOpt match {
                 case Some(userIdStr) =>
@@ -68,9 +89,15 @@ class HomeController()(implicit ec: ExecutionContext) {
                         // Get homes for the user
                         homes <- homeService.getHomesByUserId(userId)
                       } yield {
+                        val responseJson = homes.toJson.compactPrint
+                        logger.info("GET /api/homes - Success response",
+                          "userId", userId.toString,
+                          "homeCount", homes.length,
+                          "status", StatusCodes.OK.intValue,
+                          "responseSize", responseJson.length)
                         HttpResponse(
                           status = StatusCodes.OK,
-                          entity = HttpEntity(ContentTypes.`application/json`, homes.toJson.compactPrint)
+                          entity = HttpEntity(ContentTypes.`application/json`, responseJson)
                         )
                       }
 
@@ -82,43 +109,155 @@ class HomeController()(implicit ec: ExecutionContext) {
                             case _: UnauthorizedAccessException => StatusCodes.Unauthorized
                             case _ => StatusCodes.InternalServerError
                           }
-                          logger.error(s"Error fetching homes for user $userId", exception)
+                          val errorMsg = exception.getMessage
+                          logger.error("GET /api/homes - Error response", 
+                            exception,
+                            "userId", userId.toString,
+                            "error", errorMsg,
+                            "status", errorStatus.intValue)
                           complete(HttpResponse(
                             status = errorStatus,
                             entity = HttpEntity(ContentTypes.`application/json`, 
-                              Map("error" -> exception.getMessage).toJson.compactPrint)
+                              Map("error" -> errorMsg).toJson.compactPrint)
                           ))
                       }
                       
                     case Failure(_) =>
+                      val errorMsg = "Invalid userId format. Must be a valid UUID"
+                      logger.error("GET /api/homes - Bad Request (Invalid UUID)",
+                        "userIdStr", userIdStr,
+                        "error", errorMsg,
+                        "status", StatusCodes.BadRequest.intValue)
                       complete(HttpResponse(
                         status = StatusCodes.BadRequest,
                         entity = HttpEntity(ContentTypes.`application/json`, 
-                          """{"error": "Invalid userId format. Must be a valid UUID"}""")
+                          s"""{"error": "$errorMsg"}""")
                       ))
                   }
                   
                 case None =>
+                  val errorMsg = "userId parameter is required"
+                  logger.error("GET /api/homes - Bad Request (Missing userId)",
+                    "error", errorMsg,
+                    "status", StatusCodes.BadRequest.intValue)
                   complete(HttpResponse(
                     status = StatusCodes.BadRequest,
                     entity = HttpEntity(ContentTypes.`application/json`, 
-                      """{"error": "userId parameter is required"}""")
+                      s"""{"error": "$errorMsg"}""")
                   ))
               }
             }
             
           case _ =>
+            val errorMsg = "Missing or invalid Authorization header"
+            logger.error("GET /api/homes - Unauthorized (Missing auth)",
+              "error", errorMsg,
+              "status", StatusCodes.Unauthorized.intValue)
             complete(HttpResponse(
               status = StatusCodes.Unauthorized,
               entity = HttpEntity(ContentTypes.`application/json`, 
-                """{"error": "Missing or invalid Authorization header"}""")
+                s"""{"error": "$errorMsg"}""")
+            ))
+        }
+      } ~
+      post {
+        // Log incoming request
+        logger.info("POST /api/homes request received")
+        
+        optionalHeaderValueByName("Authorization") {
+          case Some(authHeader) if authHeader.startsWith("Bearer ") =>
+            val token = authHeader.substring(7)
+            entity(as[String]) { requestBody =>
+              
+              logger.info("POST /api/homes - Processing with auth token",
+                "hasAuthToken", "true",
+                "requestBodyLength", requestBody.length)
+              
+              Try(requestBody.parseJson.convertTo[AddHomeRequest]) match {
+                case Success(addHomeRequest) =>
+                  val result = for {
+                    // Validate Firebase token
+                    claims <- FirebaseAuthHandler.validateTokenAsync(token).flatMap {
+                      case Right(claims) => Future.successful(claims)
+                      case Left(_) => Future.failed(new UnauthorizedAccessException)
+                    }
+                    firebaseId = claims.getOrElse("user_id", "").asInstanceOf[String]
+                    
+                    // Get user from Firebase ID
+                    requestingUserOpt <- userService.findByFirebaseId(firebaseId)
+                    requestingUser <- requestingUserOpt match {
+                      case Some(user) => Future.successful(user)
+                      case None => Future.failed(new UserNotFoundException("User not found"))
+                    }
+                    
+                    // Create the home
+                    response <- homeService.createHome(addHomeRequest, requestingUser.id)
+                  } yield {
+                    val responseJson = response.toJson.compactPrint
+                    logger.info("POST /api/homes - Success response",
+                      "userId", requestingUser.id.toString,
+                      "homeId", response.id,
+                      "homeName", response.name,
+                      "status", StatusCodes.Created.intValue,
+                      "responseSize", responseJson.length)
+                    HttpResponse(
+                      status = StatusCodes.Created,
+                      entity = HttpEntity(ContentTypes.`application/json`, responseJson)
+                    )
+                  }
+
+                  onComplete(result) {
+                    case Success(response) => complete(response)
+                    case Failure(exception) =>
+                      val errorStatus = exception match {
+                        case _: UserNotFoundException => StatusCodes.NotFound
+                        case _: UnauthorizedAccessException => StatusCodes.Unauthorized
+                        case _: IllegalStateException => StatusCodes.Conflict
+                        case _: IllegalArgumentException => StatusCodes.BadRequest
+                        case _ => StatusCodes.InternalServerError
+                      }
+                      val errorMsg = exception.getMessage
+                      logger.error("POST /api/homes - Error response", 
+                        exception,
+                        "error", errorMsg,
+                        "status", errorStatus.intValue)
+                      complete(HttpResponse(
+                        status = errorStatus,
+                        entity = HttpEntity(ContentTypes.`application/json`, 
+                          Map("error" -> errorMsg).toJson.compactPrint)
+                      ))
+                  }
+                  
+                case Failure(exception) =>
+                  val errorMsg = s"Invalid JSON format: ${exception.getMessage}"
+                  logger.error("POST /api/homes - Bad Request (Invalid JSON)",
+                    exception,
+                    "error", errorMsg,
+                    "status", StatusCodes.BadRequest.intValue)
+                  complete(HttpResponse(
+                    status = StatusCodes.BadRequest,
+                    entity = HttpEntity(ContentTypes.`application/json`, 
+                      Map("error" -> errorMsg).toJson.compactPrint)
+                  ))
+              }
+            }
+            
+          case _ =>
+            val errorMsg = "Missing or invalid Authorization header"
+            logger.error("POST /api/homes - Unauthorized (Missing auth)",
+              "error", errorMsg,
+              "status", StatusCodes.Unauthorized.intValue)
+            complete(HttpResponse(
+              status = StatusCodes.Unauthorized,
+              entity = HttpEntity(ContentTypes.`application/json`, 
+                Map("error" -> errorMsg).toJson.compactPrint)
             ))
         }
       }
     }
   }
 
-  def homeItemsRoute: Route = cors() {
+  def homeItemsRoute: Route = cors(corsSettings) {
     path("api" / "homes" / JavaUUID / "items") { homeId =>
       get {
         optionalHeaderValueByName("Authorization") {
@@ -130,6 +269,15 @@ class HomeController()(implicit ec: ExecutionContext) {
               "limit".as[Int] ? 50,
               "offset".as[Int] ? 0
             ) { (itemType, emergency, limit, offset) =>
+              
+              // Log incoming request
+              logger.info("GET /api/homes/{homeId}/items request received",
+                "homeId", homeId.toString,
+                "type", itemType.getOrElse("not_provided"),
+                "emergency", emergency.getOrElse("not_provided").toString,
+                "limit", limit,
+                "offset", offset,
+                "hasAuthToken", "true")
               
               val result = for {
                 // Validate Firebase token
@@ -159,9 +307,16 @@ class HomeController()(implicit ec: ExecutionContext) {
                   homeId, requestingUser.id, itemType, emergency, limit, offset
                 )
               } yield {
+                val responseJson = homeItems.toJson.compactPrint
+                logger.info("GET /api/homes/{homeId}/items - Success response",
+                  "homeId", homeId.toString,
+                  "userId", requestingUser.id.toString,
+                  "itemCount", homeItems.length,
+                  "status", StatusCodes.OK.intValue,
+                  "responseSize", responseJson.length)
                 HttpResponse(
                   status = StatusCodes.OK,
-                  entity = HttpEntity(ContentTypes.`application/json`, homeItems.toJson.compactPrint)
+                  entity = HttpEntity(ContentTypes.`application/json`, responseJson)
                 )
               }
 
@@ -173,7 +328,12 @@ class HomeController()(implicit ec: ExecutionContext) {
                     case _: UnauthorizedAccessException => StatusCodes.Forbidden
                     case _ => StatusCodes.InternalServerError
                   }
-                  logger.error(s"Error fetching items for home $homeId", exception)
+                  val errorMsg = exception.getMessage
+                  logger.error("GET /api/homes/{homeId}/items - Error response", 
+                    exception,
+                    "homeId", homeId.toString,
+                    "error", errorMsg,
+                    "status", errorStatus.intValue)
                   complete(HttpResponse(
                     status = errorStatus,
                     entity = HttpEntity(ContentTypes.`application/json`, 
@@ -183,10 +343,15 @@ class HomeController()(implicit ec: ExecutionContext) {
             }
             
           case _ =>
+            val errorMsg = "Missing or invalid Authorization header"
+            logger.error("GET /api/homes/{homeId}/items - Unauthorized (Missing auth)",
+              "homeId", homeId.toString,
+              "error", errorMsg,
+              "status", StatusCodes.Unauthorized.intValue)
             complete(HttpResponse(
               status = StatusCodes.Unauthorized,
               entity = HttpEntity(ContentTypes.`application/json`, 
-                """{"error": "Missing or invalid Authorization header"}""")
+                s"""{"error": "$errorMsg"}""")
             ))
         }
       }

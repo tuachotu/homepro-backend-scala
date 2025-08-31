@@ -1,7 +1,7 @@
 package com.tuachotu.repository
 
 import com.tuachotu.db.DatabaseConnection
-import com.tuachotu.model.db.{Photo, PhotoWithDetails, HomeItem, User}
+import com.tuachotu.model.db.{Photo, PhotoWithDetails, HomeItem, HomeItemType, User}
 import com.tuachotu.util.LoggerUtil
 import com.tuachotu.util.LoggerUtil.Logger
 
@@ -31,6 +31,31 @@ class PhotoRepository()(implicit ec: ExecutionContext) {
     """
 
     DatabaseConnection.executeQuery(sql, homeId)(extractPhotoWithDetails)
+  }
+
+  def findPhotoById(photoId: UUID): Future[Option[Photo]] = {
+    val sql = """
+      SELECT 
+        id, home_id, home_item_id, user_id, s3_key, file_name, content_type, 
+        caption, is_primary, created_by, created_at
+      FROM photos 
+      WHERE id = ?
+    """
+
+    DatabaseConnection.executeQuerySingle(sql, photoId)(extractPhoto)
+  }
+
+  def updatePhotoHomeItemId(photoId: UUID, homeItemId: UUID): Future[Int] = {
+    val sql = """
+      UPDATE photos 
+      SET home_item_id = ? 
+      WHERE id = ?
+    """
+
+    DatabaseConnection.executeUpdate(sql, homeItemId, photoId).map { rowsAffected =>
+      logger.info(s"Updated photo $photoId to link with home item $homeItemId")
+      rowsAffected
+    }
   }
 
   def findPhotosByHomeItemId(homeItemId: UUID): Future[List[PhotoWithDetails]] = {
@@ -72,7 +97,7 @@ class PhotoRepository()(implicit ec: ExecutionContext) {
         id = rs.getObject("hi_id").asInstanceOf[UUID],
         homeId = rs.getObject("hi_home_id").asInstanceOf[UUID],
         name = rs.getString("hi_name"),
-        itemType = rs.getString("hi_type"),
+        itemType = HomeItemType.fromString(rs.getString("hi_type")),
         isEmergency = rs.getBoolean("hi_is_emergency"),
         data = rs.getString("hi_data"),
         createdBy = Option(rs.getObject("hi_created_by")).map(_.asInstanceOf[UUID]),
@@ -97,5 +122,21 @@ class PhotoRepository()(implicit ec: ExecutionContext) {
     }
 
     PhotoWithDetails(photo, homeItem, uploadedBy)
+  }
+
+  private def extractPhoto(rs: ResultSet): Photo = {
+    Photo(
+      id = rs.getObject("id").asInstanceOf[UUID],
+      homeId = Option(rs.getObject("home_id")).map(_.asInstanceOf[UUID]),
+      homeItemId = Option(rs.getObject("home_item_id")).map(_.asInstanceOf[UUID]),
+      userId = Option(rs.getObject("user_id")).map(_.asInstanceOf[UUID]),
+      s3Key = rs.getString("s3_key"),
+      fileName = Option(rs.getString("file_name")),
+      contentType = Option(rs.getString("content_type")),
+      caption = Option(rs.getString("caption")),
+      isPrimary = rs.getBoolean("is_primary"),
+      createdBy = Option(rs.getObject("created_by")).map(_.asInstanceOf[UUID]),
+      createdAt = rs.getTimestamp("created_at").toLocalDateTime
+    )
   }
 }

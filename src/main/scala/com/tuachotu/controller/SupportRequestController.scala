@@ -55,9 +55,13 @@ class SupportRequestController()(implicit ec: ExecutionContext) {
     path("api" / "support-requests" ) {
       concat(
         post {
+        // Log incoming request
+        logger.info("POST /api/support-requests request received")
+        
         optionalHeaderValueByName("Authorization") {
           case Some(authHeader) if authHeader.startsWith("Bearer ") =>
             val token = authHeader.substring(7)
+            logger.info("POST /api/support-requests - Processing with auth token")
             val result = for {
               claims <- FirebaseAuthHandler.validateTokenAsync(token).flatMap {
                 case Right(claims) => Future.successful(claims)
@@ -73,33 +77,44 @@ class SupportRequestController()(implicit ec: ExecutionContext) {
               sr <- supportRequestService.createSupportRequest(csr)
               srResponse = CreateSupportRequestResponse.fromDbModel(sr)
             } yield {
-              val response = sr.toString
+              val responseJson = srResponse.toJson.compactPrint
+              logger.info("POST /api/support-requests - Success response",
+                "userId", user.id.toString,
+                "supportRequestId", sr.id.toString,
+                "status", StatusCodes.OK.intValue,
+                "responseSize", responseJson.length)
               HttpResponse(
                 status = StatusCodes.OK,
-                entity = HttpEntity(ContentTypes.`application/json`, srResponse.toJson.compactPrint)
+                entity = HttpEntity(ContentTypes.`application/json`, responseJson)
               )
             }
             onComplete(result) {
-              case Success(response) =>
-                println(response.toString)
-                complete(response)
+              case Success(response) => complete(response)
               case Failure(exception) =>
-                println(exception.toString)
                 val errorStatus = exception match {
                   case _: UserNotFoundException => StatusCodes.NotFound
                   case _: UnauthorizedAccessException => StatusCodes.Unauthorized
                   case _ => StatusCodes.InternalServerError
                 }
+                val errorMsg = exception.getMessage
+                logger.error("POST /api/support-requests - Error response", 
+                  exception,
+                  "error", errorMsg,
+                  "status", errorStatus.intValue)
                 complete(HttpResponse(
                   status = errorStatus,
-                  entity = HttpEntity(ContentTypes.`application/json`, Map("error" -> exception.getMessage).toJson.compactPrint)
+                  entity = HttpEntity(ContentTypes.`application/json`, Map("error" -> errorMsg).toJson.compactPrint)
                 ))
             }
 
           case _ =>
+            val errorMsg = "Missing or invalid Authorization header"
+            logger.error("POST /api/support-requests - Unauthorized (Missing auth)",
+              "error", errorMsg,
+              "status", StatusCodes.Unauthorized.intValue)
             complete(HttpResponse(
               status = StatusCodes.Unauthorized,
-              entity = HttpEntity(ContentTypes.`application/json`, """{"error": "Missing or invalid Authorization header"}""")
+              entity = HttpEntity(ContentTypes.`application/json`, s"""{"error": "$errorMsg"}""")
             ))
         }
       },

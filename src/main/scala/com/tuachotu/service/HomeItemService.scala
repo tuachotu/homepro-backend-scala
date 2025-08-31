@@ -1,12 +1,14 @@
 package com.tuachotu.service
 
-import com.tuachotu.model.db.HomeItemEnhanced
-import com.tuachotu.model.response.HomeItemResponse
+import com.tuachotu.model.db.{HomeItem, HomeItemEnhanced, HomeItemType}
+import com.tuachotu.model.request.AddHomeItemRequest
+import com.tuachotu.model.response.{AddHomeItemResponse, HomeItemResponse}
 import com.tuachotu.repository.HomeItemRepository
 import com.tuachotu.util.LoggerUtil
 import com.tuachotu.util.LoggerUtil.Logger
 import spray.json._
 
+import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future}
@@ -19,6 +21,43 @@ class HomeItemService(
   
   implicit private val logger: Logger = LoggerUtil.getLogger(getClass)
   private val dateFormatter = DateTimeFormatter.ISO_LOCAL_DATE_TIME
+
+  def createHomeItem(
+    homeId: UUID,
+    request: AddHomeItemRequest,
+    userId: UUID
+  ): Future[AddHomeItemResponse] = {
+    try {
+      val itemType = HomeItemType.fromString(request.itemType)
+      val itemId = UUID.randomUUID()
+      val now = LocalDateTime.now()
+      
+      val dataJson = request.data.getOrElse("{}")
+      
+      val homeItem = HomeItem(
+        id = itemId,
+        homeId = homeId,
+        name = request.name,
+        itemType = itemType,
+        isEmergency = request.isEmergency,
+        data = dataJson,
+        createdBy = Some(userId),
+        createdAt = now
+      )
+
+      homeItemRepository.createHomeItem(homeItem).map { createdItem =>
+        logger.info(s"Successfully created home item: ${createdItem.id} for home: $homeId")
+        AddHomeItemResponse.fromHomeItem(createdItem)
+      }
+    } catch {
+      case ex: IllegalArgumentException =>
+        logger.error(s"Invalid item type: ${request.itemType}", ex)
+        Future.failed(new RuntimeException(s"Invalid item type: ${request.itemType}"))
+      case ex: Exception =>
+        logger.error(s"Failed to create home item for home: $homeId", ex)
+        Future.failed(ex)
+    }
+  }
 
   def getHomeItems(
     homeId: UUID,
