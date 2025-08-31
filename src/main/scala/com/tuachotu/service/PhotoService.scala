@@ -1,6 +1,6 @@
 package com.tuachotu.service
 
-import com.tuachotu.model.db.{Photo, PhotoWithDetails}
+import com.tuachotu.model.db.{Photo, PhotoWithDetails, HomeItemType}
 import com.tuachotu.model.response.{PhotoResponse, HomeItemInfo, UploadedByInfo}
 import com.tuachotu.repository.PhotoRepository
 import com.tuachotu.util.LoggerUtil
@@ -49,7 +49,7 @@ class PhotoService(
           HomeItemInfo(
             id = homeItem.id.toString,
             name = homeItem.name,
-            `type` = homeItem.itemType
+            `type` = HomeItemType.toString(homeItem.itemType)
           )
         }
 
