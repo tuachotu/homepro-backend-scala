@@ -4,7 +4,7 @@ import com.tuachotu.util.{ConfigUtil, LoggerUtil}
 import com.tuachotu.util.LoggerUtil.Logger
 import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.s3.S3Client
-import software.amazon.awssdk.services.s3.model.{GetObjectRequest, PutObjectRequest}
+import software.amazon.awssdk.services.s3.model.{GetObjectRequest, PutObjectRequest, DeleteObjectRequest}
 import software.amazon.awssdk.services.s3.presigner.S3Presigner
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest
 import software.amazon.awssdk.core.sync.RequestBody
@@ -104,17 +104,17 @@ class S3Service()(implicit ec: ExecutionContext) {
         val requestBuilder = PutObjectRequest.builder()
           .bucket(bucketName)
           .key(s3Key)
-          
+
         val putObjectRequest = contentType match {
           case Some(ct) => requestBuilder.contentType(ct).build()
           case None => requestBuilder.build()
         }
-        
+
         val requestBody = RequestBody.fromBytes(data)
         s3Client.putObject(putObjectRequest, requestBody)
       } match {
         case Success(_) =>
-          logger.info(s"Successfully uploaded file to S3", 
+          logger.info(s"Successfully uploaded file to S3",
             "s3Key", s3Key,
             "bucket", bucketName,
             "sizeBytes", data.length,
@@ -124,6 +124,35 @@ class S3Service()(implicit ec: ExecutionContext) {
             "s3Key", s3Key,
             "bucket", bucketName,
             "sizeBytes", data.length)
+          throw exception
+      }
+    }
+  }
+
+  /**
+   * Deletes a file from S3 with the given key.
+   *
+   * @param s3Key The S3 key/path of the file to delete
+   * @return Future that completes when deletion is successful
+   */
+  def deleteFile(s3Key: String): Future[Unit] = {
+    Future {
+      Try {
+        val deleteObjectRequest = DeleteObjectRequest.builder()
+          .bucket(bucketName)
+          .key(s3Key)
+          .build()
+
+        s3Client.deleteObject(deleteObjectRequest)
+      } match {
+        case Success(_) =>
+          logger.info(s"Successfully deleted file from S3",
+            "s3Key", s3Key,
+            "bucket", bucketName)
+        case Failure(exception) =>
+          logger.error(s"Failed to delete file from S3", exception,
+            "s3Key", s3Key,
+            "bucket", bucketName)
           throw exception
       }
     }

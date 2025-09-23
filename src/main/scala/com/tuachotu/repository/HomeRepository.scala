@@ -133,6 +133,55 @@ class HomeRepository()(implicit ec: ExecutionContext) {
     }
   }
 
+  def deletePhotosByHomeId(homeId: UUID): Future[Unit] = {
+    val sql = """
+      DELETE FROM photos
+      WHERE home_id = ? OR home_item_id IN (
+        SELECT id FROM home_items WHERE home_id = ?
+      )
+    """
+
+    DatabaseConnection.executeUpdate(sql, homeId, homeId).map { rowsAffected =>
+      logger.info(s"Deleted $rowsAffected photos for home $homeId")
+    }
+  }
+
+  def deleteHomeItemsByHomeId(homeId: UUID): Future[Unit] = {
+    val sql = """
+      DELETE FROM home_items
+      WHERE home_id = ?
+    """
+
+    DatabaseConnection.executeUpdate(sql, homeId).map { rowsAffected =>
+      logger.info(s"Deleted $rowsAffected home items for home $homeId")
+    }
+  }
+
+  def deleteHomeOwnershipByHomeId(homeId: UUID): Future[Unit] = {
+    val sql = """
+      DELETE FROM home_owners
+      WHERE home_id = ?
+    """
+
+    DatabaseConnection.executeUpdate(sql, homeId).map { rowsAffected =>
+      logger.info(s"Deleted $rowsAffected home ownership records for home $homeId")
+    }
+  }
+
+  def deleteHome(homeId: UUID): Future[Unit] = {
+    val sql = """
+      DELETE FROM homes
+      WHERE id = ?
+    """
+
+    DatabaseConnection.executeUpdate(sql, homeId).map { rowsAffected =>
+      if (rowsAffected == 0) {
+        throw new RuntimeException(s"Home $homeId not found")
+      }
+      logger.info(s"Successfully deleted home $homeId")
+    }
+  }
+
   private def extractHome(rs: ResultSet): Home = {
     Home(
       id = rs.getObject("id").asInstanceOf[UUID],

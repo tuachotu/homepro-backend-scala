@@ -48,17 +48,17 @@ class HomeService(
       } else {
         Future.successful(())
       }
-      
+
       // Create the home
       homeId = UUID.randomUUID()
       now = LocalDateTime.now()
-      
+
       // Convert metadata Map to JSON string if provided
       metadataJson = addHomeRequest.metadata match {
         case Some(metadata) => metadata.toJson.compactPrint
         case None => "{}"
       }
-      
+
       home = Home(
         id = homeId,
         address = addHomeRequest.address,
@@ -70,17 +70,39 @@ class HomeService(
         updatedAt = now,
         updatedBy = Some(userId)
       )
-      
+
       // Create home and ownership in sequence
       createdHome <- homeRepository.createHome(home)
       _ <- homeRepository.createHomeOwnership(homeId, userId, "owner")
-      
+
     } yield {
-      logger.info(s"Successfully created home for user $userId", 
+      logger.info(s"Successfully created home for user $userId",
         "homeId", homeId.toString,
         "homeName", addHomeRequest.name,
         "address", addHomeRequest.address.getOrElse("not_provided"))
       AddHomeResponse.fromDbModel(createdHome)
+    }
+  }
+
+  def deleteHome(homeId: UUID, userId: UUID): Future[Unit] = {
+    for {
+      // Verify home exists and user has access
+      userRole <- homeRepository.checkUserHomeAccess(userId, homeId)
+      _ <- userRole match {
+        case Some(_) => Future.successful(())
+        case None => Future.failed(new RuntimeException("Home not found or access denied"))
+      }
+
+      // Delete in correct order: photos first, then home items, then home ownership, then home
+      _ <- homeRepository.deletePhotosByHomeId(homeId)
+      _ <- homeRepository.deleteHomeItemsByHomeId(homeId)
+      _ <- homeRepository.deleteHomeOwnershipByHomeId(homeId)
+      _ <- homeRepository.deleteHome(homeId)
+
+    } yield {
+      logger.info(s"Successfully deleted home $homeId by user $userId",
+        "homeId", homeId.toString,
+        "deletedBy", userId.toString)
     }
   }
 

@@ -38,6 +38,85 @@ class PhotoService(
     }
   }
 
+  def deletePhoto(photoId: UUID, userId: UUID): Future[Unit] = {
+    for {
+      // Get the photo to verify it exists and check authorization
+      photoOpt <- photoRepository.findPhotoById(photoId)
+      photo <- photoOpt match {
+        case Some(p) => Future.successful(p)
+        case None => Future.failed(new RuntimeException("Photo not found"))
+      }
+
+      // Check authorization: user must own the home where this photo belongs
+      _ <- checkPhotoDeleteAuthorization(photo, userId)
+
+      // Delete from S3 first (non-blocking if it fails)
+      _ <- deleteFromS3(photo).recover {
+        case ex =>
+          logger.warn(s"Failed to delete photo from S3: ${photo.s3Key}", ex)
+          // Continue with database deletion even if S3 deletion fails
+      }
+
+      // Delete from database
+      _ <- photoRepository.deletePhoto(photoId)
+
+    } yield {
+      logger.info(s"Successfully deleted photo $photoId by user $userId",
+        "photoId", photoId.toString,
+        "deletedBy", userId.toString)
+    }
+  }
+
+  private def checkPhotoDeleteAuthorization(photo: Photo, userId: UUID): Future[Unit] = {
+    // For photos associated with home items, check if user owns the home
+    if (photo.homeItemId.isDefined) {
+      photoRepository.checkUserOwnsPhotoViaHomeItem(photo.homeItemId.get, userId).map { hasAccess =>
+        if (!hasAccess) {
+          throw new RuntimeException("Photo access denied - user does not own the home")
+        }
+      }
+    }
+    // For photos associated directly with homes, check if user owns the home
+    else if (photo.homeId.isDefined) {
+      photoRepository.checkUserOwnsPhotoViaHome(photo.homeId.get, userId).map { hasAccess =>
+        if (!hasAccess) {
+          throw new RuntimeException("Photo access denied - user does not own the home")
+        }
+      }
+    }
+    // For user photos, check if it's the same user
+    else if (photo.userId.isDefined) {
+      if (photo.userId.get == userId) {
+        Future.successful(())
+      } else {
+        Future.failed(new RuntimeException("Photo access denied - not your photo"))
+      }
+    }
+    // For orphaned photos, only allow deletion by the creator
+    else {
+      if (photo.createdBy.contains(userId)) {
+        Future.successful(())
+      } else {
+        Future.failed(new RuntimeException("Photo access denied - you did not create this photo"))
+      }
+    }
+  }
+
+  private def deleteFromS3(photo: Photo): Future[Unit] = {
+    // Determine the S3 key based on context
+    val s3Key = if (photo.homeItemId.isDefined) {
+      s"${photo.homeItemId.get}/${photo.s3Key}"
+    } else if (photo.homeId.isDefined) {
+      s"${photo.homeId.get}/${photo.s3Key}"
+    } else if (photo.userId.isDefined) {
+      s"${photo.userId.get}/${photo.s3Key}"
+    } else {
+      photo.s3Key // Legacy photos without context
+    }
+
+    s3Service.deleteFile(s3Key)
+  }
+
   private def convertToPhotoResponses(photosWithDetails: List[PhotoWithDetails]): Future[List[PhotoResponse]] = {
     Future.traverse(photosWithDetails) { photoWithDetails =>
       val photo = photoWithDetails.photo

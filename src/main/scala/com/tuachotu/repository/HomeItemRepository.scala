@@ -140,13 +140,13 @@ class HomeItemRepository()(implicit ec: ExecutionContext) {
 
   def getItemStats(homeId: UUID): Future[HomeStatsResponse] = {
     val sql = """
-      SELECT 
+      SELECT
         COUNT(*) as total_items,
         COUNT(CASE WHEN is_emergency THEN 1 END) as emergency_items,
         COALESCE(photo_stats.total_photos, 0) as total_photos
       FROM home_items hi
       LEFT JOIN (
-        SELECT 
+        SELECT
           COUNT(DISTINCT p1.id) as total_photos
         FROM photos p1
         WHERE p1.home_id = ? OR p1.home_item_id IN (
@@ -156,13 +156,38 @@ class HomeItemRepository()(implicit ec: ExecutionContext) {
       WHERE hi.home_id = ?
     """
 
-    DatabaseConnection.executeQuerySingle(sql, homeId, homeId, homeId)(rs => 
+    DatabaseConnection.executeQuerySingle(sql, homeId, homeId, homeId)(rs =>
       HomeStatsResponse(
         total_items = rs.getInt("total_items"),
         total_photos = rs.getInt("total_photos"),
         emergency_items = rs.getInt("emergency_items")
       )
     ).map(_.getOrElse(HomeStatsResponse(0, 0, 0)))
+  }
+
+  def deletePhotosByHomeItemId(homeItemId: UUID): Future[Unit] = {
+    val sql = """
+      DELETE FROM photos
+      WHERE home_item_id = ?
+    """
+
+    DatabaseConnection.executeUpdate(sql, homeItemId).map { rowsAffected =>
+      logger.info(s"Deleted $rowsAffected photos for home item $homeItemId")
+    }
+  }
+
+  def deleteHomeItem(homeItemId: UUID): Future[Unit] = {
+    val sql = """
+      DELETE FROM home_items
+      WHERE id = ?
+    """
+
+    DatabaseConnection.executeUpdate(sql, homeItemId).map { rowsAffected =>
+      if (rowsAffected == 0) {
+        throw new RuntimeException(s"Home item $homeItemId not found")
+      }
+      logger.info(s"Successfully deleted home item $homeItemId")
+    }
   }
 
   private def extractHomeItemEnhanced(rs: ResultSet): HomeItemEnhanced = {

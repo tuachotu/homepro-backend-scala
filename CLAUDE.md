@@ -26,6 +26,8 @@ The main class is `com.tuachotu.HomeProMain` and runs an Akka HTTP server on por
 ### AWS S3 (Photo Storage)
 - AWS credentials should be configured via standard AWS credential chain (environment variables, IAM roles, etc.)
 - `AWS_S3_PRESIGNED_URL_EXPIRATION_HOURS` - URL expiration time (default: 24 hours)
+- S3 bucket: `homepro-photos-east-1` (configured in application.conf)
+- Default region: `us-east-1`
 
 ## Architecture Overview
 
@@ -43,15 +45,42 @@ This is a **Scala 3** backend using **Akka HTTP** with **direct SQL queries** (n
 ```
 com.tuachotu/
 ├── HomeProMain.scala    # Application entry point
-├── controller/          # HTTP route handlers (UserController, PhotoController, HomeController, SupportRequestController)
-├── service/            # Business logic (UserService, PhotoService, HomeService, S3Service, etc.)
-├── repository/         # Data access with raw SQL (UserRepository, PhotoRepository, HomeRepository, etc.)
+├── controller/          # HTTP route handlers
+│   ├── UserController
+│   ├── PhotoController
+│   ├── HomeController
+│   ├── HomeItemController
+│   └── SupportRequestController
+├── service/            # Business logic layer
+│   ├── UserService
+│   ├── PhotoService
+│   ├── HomeService
+│   ├── HomeItemService
+│   ├── S3Service
+│   ├── RoleService
+│   ├── UserRoleService
+│   └── SupportRequestService
+├── repository/         # Data access with raw SQL
+│   ├── UserRepository
+│   ├── PhotoRepository
+│   ├── HomeRepository
+│   ├── HomeItemRepository
+│   ├── RoleRepository
+│   ├── UserRoleRepository
+│   └── SupportRequestRepository
 ├── model/
-│   ├── db/            # Database case classes (Users, Photo, Home, SupportRequest, etc.)
-│   ├── request/       # API request models  
-│   └── response/      # API response models
-├── util/              # Utilities (ConfigUtil, LoggerUtil, FirebaseAuthHandler, TimeUtil, etc.)
-├── conf/              # Configuration constants
+│   ├── db/            # Database case classes (Users, Photo, Home, HomeItem, etc.)
+│   ├── request/       # API request models (AddHomeRequest, CreateSupportRequest, etc.)
+│   └── response/      # API response models (PhotoResponse, HomeResponse, etc.)
+├── util/              # Utilities
+│   ├── ConfigUtil     # Configuration management
+│   ├── LoggerUtil     # Structured logging
+│   ├── FirebaseAuthHandler # Authentication
+│   ├── TimeUtil       # Time utilities
+│   ├── IdUtil         # UUID generation
+│   ├── JsonFormats    # Spray JSON formats
+│   └── HomeProException # Custom exceptions
+├── conf/              # Configuration constants (Constant.scala)
 └── db/                # Database connection management (DatabaseConnection)
 ```
 
@@ -68,11 +97,16 @@ com.tuachotu/
 - `roles` - System roles (admin, homeowner, expert, manager)
 - `user_roles` - Many-to-many user-role relationships
 - `support_requests` - Service request lifecycle management
-- `homes` - Home/property information
-- `home_items` - Individual items within homes
-- `photos` - Photo metadata with S3 key references
+- `homes` - Home/property information with address and ownership
+- `home_items` - Individual items within homes (enum type: room, appliance, utility_control, structural, observation, wiring, sensor, other)
+- `photos` - Photo metadata with S3 key references and context relationships
+- `home_owners` - Many-to-many relationship between homes and users with roles
 
-All tables support **soft deletion** with `deleted_at` timestamps.
+**Key Features**:
+- All tables support **soft deletion** with `deleted_at` timestamps
+- `home_items` uses PostgreSQL ENUM type for `home_item_type`
+- `photos` table supports context-based relationships (user_id, home_id, home_item_id)
+- UUID primary keys throughout for better scalability
 
 ## Important Implementation Details
 
@@ -122,11 +156,47 @@ sbt "Test/runMain com.tuachotu.testS3Service"
 sbt "Test/runMain com.tuachotu.testS3Integration <user-id>"
 ```
 
+**Example with actual user ID:**
+```bash
+sbt "Test/runMain com.tuachotu.testS3Integration a8f65408-8bce-4662-8fb3-d072b1f6dd34"
+```
+
 These tests verify the context-based S3 URL generation and are useful for:
 - Validating AWS S3 configuration
 - Testing new S3-related features
 - Debugging S3 URL generation issues
 - Onboarding new developers
+
+### API Integration Tests
+
+Shell scripts for testing API endpoints:
+```bash
+# Test home item creation and photo upload
+./test_home_item_api.sh
+./test_photo_upload_api.sh
+
+# Test CORS and general endpoints
+./test-cors.sh
+./test-home-endpoints.sh
+```
+
+Make scripts executable: `chmod +x *.sh`
+
+### Quick Start
+
+Use the provided quick start script for complete environment setup:
+```bash
+# Full setup with environment checks and application start
+./quick_start.sh
+
+# Check prerequisites and environment only
+./quick_start.sh --check-only
+
+# Compile only
+./quick_start.sh --compile-only
+```
+
+The script validates Java, SBT, PostgreSQL, environment variables, and database connectivity.
 
 ## Development Guidelines
 
