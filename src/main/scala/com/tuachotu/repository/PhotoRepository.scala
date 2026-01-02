@@ -60,10 +60,10 @@ class PhotoRepository()(implicit ec: ExecutionContext) {
 
   def findPhotosByHomeItemId(homeItemId: UUID): Future[List[PhotoWithDetails]] = {
     val sql = """
-      SELECT 
-        p.id, p.home_id, p.home_item_id, p.user_id, p.s3_key, p.file_name, p.content_type, 
+      SELECT
+        p.id, p.home_id, p.home_item_id, p.user_id, p.s3_key, p.file_name, p.content_type,
         p.caption, p.is_primary, p.created_by, p.created_at,
-        hi.id as hi_id, hi.home_id as hi_home_id, hi.name as hi_name, hi.type as hi_type, 
+        hi.id as hi_id, hi.home_id as hi_home_id, hi.name as hi_name, hi.type as hi_type,
         hi.is_emergency as hi_is_emergency, hi.data as hi_data, hi.created_by as hi_created_by, hi.created_at as hi_created_at,
         u.id as u_id, u.firebase_uid, u.name as u_name, u.email, u.phone_number, u.profile,
         u.created_by as u_created_by, u.created_at as u_created_at, u.last_modified_by, u.last_modified_at, u.deleted_at
@@ -75,6 +75,43 @@ class PhotoRepository()(implicit ec: ExecutionContext) {
     """
 
     DatabaseConnection.executeQuery(sql, homeItemId)(extractPhotoWithDetails)
+  }
+
+  def deletePhoto(photoId: UUID): Future[Unit] = {
+    val sql = """
+      DELETE FROM photos
+      WHERE id = ?
+    """
+
+    DatabaseConnection.executeUpdate(sql, photoId).map { rowsAffected =>
+      if (rowsAffected == 0) {
+        throw new RuntimeException(s"Photo $photoId not found")
+      }
+      logger.info(s"Successfully deleted photo $photoId")
+    }
+  }
+
+  def checkUserOwnsPhotoViaHomeItem(homeItemId: UUID, userId: UUID): Future[Boolean] = {
+    val sql = """
+      SELECT COUNT(*)
+      FROM home_items hi
+      JOIN home_owners ho ON hi.home_id = ho.home_id
+      WHERE hi.id = ? AND ho.user_id = ?
+    """
+
+    DatabaseConnection.executeQuerySingle(sql, homeItemId, userId)(rs => rs.getInt(1) > 0)
+      .map(_.getOrElse(false))
+  }
+
+  def checkUserOwnsPhotoViaHome(homeId: UUID, userId: UUID): Future[Boolean] = {
+    val sql = """
+      SELECT COUNT(*)
+      FROM home_owners
+      WHERE home_id = ? AND user_id = ?
+    """
+
+    DatabaseConnection.executeQuerySingle(sql, homeId, userId)(rs => rs.getInt(1) > 0)
+      .map(_.getOrElse(false))
   }
 
   private def extractPhotoWithDetails(rs: ResultSet): PhotoWithDetails = {

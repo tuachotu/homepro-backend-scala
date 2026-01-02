@@ -156,5 +156,95 @@ class HomeItemController()(implicit ec: ExecutionContext) {
     }
   }
 
-  def routes: Route = createHomeItemRoute
+  def deleteHomeItemRoute: Route = cors(corsSettings) {
+    path("api" / "homes" / JavaUUID / "items" / JavaUUID) { (homeId, itemId) =>
+      delete {
+        optionalHeaderValueByName("Authorization") {
+          case Some(authHeader) if authHeader.startsWith("Bearer ") =>
+            val token = authHeader.substring(7)
+
+            // Log incoming request
+            logger.info("DELETE /api/homes/{homeId}/items/{itemId} request received",
+              "homeId", homeId.toString,
+              "itemId", itemId.toString,
+              "hasAuthToken", "true")
+
+            val result = for {
+              // Validate Firebase token
+              claims <- FirebaseAuthHandler.validateTokenAsync(token).flatMap {
+                case Right(claims) => Future.successful(claims)
+                case Left(_) => Future.failed(new UnauthorizedAccessException)
+              }
+              firebaseId = claims.getOrElse("user_id", "").asInstanceOf[String]
+
+              // Get user from Firebase ID
+              requestingUserOpt <- userService.findByFirebaseId(firebaseId)
+              requestingUser <- requestingUserOpt match {
+                case Some(user) => Future.successful(user)
+                case None => Future.failed(new UserNotFoundException("User not found"))
+              }
+
+              // Check if user has access to this home
+              hasAccess <- homeService.checkUserAccess(requestingUser.id, homeId)
+              _ <- if (hasAccess) {
+                Future.successful(())
+              } else {
+                Future.failed(new UnauthorizedAccessException)
+              }
+
+              // Delete the home item (cascading deletes handled in service)
+              _ <- homeItemService.deleteHomeItem(homeId, itemId, requestingUser.id)
+            } yield {
+              logger.info("DELETE /api/homes/{homeId}/items/{itemId} - Success response",
+                "homeId", homeId.toString,
+                "itemId", itemId.toString,
+                "userId", requestingUser.id.toString,
+                "status", StatusCodes.NoContent.intValue)
+              HttpResponse(
+                status = StatusCodes.NoContent,
+                entity = HttpEntity.Empty
+              )
+            }
+
+            onComplete(result) {
+              case Success(response) => complete(response)
+              case Failure(exception) =>
+                val errorStatus = exception match {
+                  case _: UserNotFoundException => StatusCodes.NotFound
+                  case _: UnauthorizedAccessException => StatusCodes.Forbidden
+                  case ex if ex.getMessage.contains("not found") => StatusCodes.NotFound
+                  case _ => StatusCodes.InternalServerError
+                }
+                val errorMsg = exception.getMessage
+                logger.error("DELETE /api/homes/{homeId}/items/{itemId} - Error response",
+                  exception,
+                  "homeId", homeId.toString,
+                  "itemId", itemId.toString,
+                  "error", errorMsg,
+                  "status", errorStatus.intValue)
+                complete(HttpResponse(
+                  status = errorStatus,
+                  entity = HttpEntity(ContentTypes.`application/json`,
+                    Map("error" -> errorMsg).toJson.compactPrint)
+                ))
+            }
+
+          case _ =>
+            val errorMsg = "Missing or invalid Authorization header"
+            logger.error("DELETE /api/homes/{homeId}/items/{itemId} - Unauthorized (Missing auth)",
+              "homeId", homeId.toString,
+              "itemId", itemId.toString,
+              "error", errorMsg,
+              "status", StatusCodes.Unauthorized.intValue)
+            complete(HttpResponse(
+              status = StatusCodes.Unauthorized,
+              entity = HttpEntity(ContentTypes.`application/json`,
+                Map("error" -> errorMsg).toJson.compactPrint)
+            ))
+        }
+      }
+    }
+  }
+
+  def routes: Route = createHomeItemRoute ~ deleteHomeItemRoute
 }

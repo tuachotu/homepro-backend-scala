@@ -86,6 +86,30 @@ class HomeItemService(
     } yield responseOpt
   }
 
+  def deleteHomeItem(homeId: UUID, itemId: UUID, userId: UUID): Future[Unit] = {
+    for {
+      // Verify the home item exists and belongs to the specified home
+      homeItemOpt <- homeItemRepository.findItemById(itemId)
+      homeItem <- homeItemOpt match {
+        case Some(item) if item.homeId == homeId => Future.successful(item)
+        case Some(_) => Future.failed(new RuntimeException("Home item does not belong to the specified home"))
+        case None => Future.failed(new RuntimeException("Home item not found"))
+      }
+
+      // Delete photos associated with this home item first
+      _ <- homeItemRepository.deletePhotosByHomeItemId(itemId)
+
+      // Delete the home item
+      _ <- homeItemRepository.deleteHomeItem(itemId)
+
+    } yield {
+      logger.info(s"Successfully deleted home item $itemId from home $homeId by user $userId",
+        "homeId", homeId.toString,
+        "itemId", itemId.toString,
+        "deletedBy", userId.toString)
+    }
+  }
+
   private def convertToHomeItemResponses(homeItems: List[HomeItemEnhanced]): Future[List[HomeItemResponse]] = {
     Future.traverse(homeItems) { item =>
       val primaryPhotoUrlFuture = item.primaryS3Key match {

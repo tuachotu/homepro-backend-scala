@@ -337,5 +337,84 @@ class PhotoController()(implicit ec: ExecutionContext, mat: Materializer) {
     }
   }
 
-  def routes: Route = photosRoute
+  def deletePhotoRoute: Route = cors(corsSettings) {
+    path("api" / "photos" / JavaUUID) { photoId =>
+      delete {
+        optionalHeaderValueByName("Authorization") {
+          case Some(authHeader) if authHeader.startsWith("Bearer ") =>
+            val token = authHeader.substring(7)
+
+            // Log incoming request
+            logger.info("DELETE /api/photos/{photoId} request received",
+              "photoId", photoId.toString,
+              "hasAuthToken", "true")
+
+            val result = for {
+              // Validate Firebase token
+              claims <- FirebaseAuthHandler.validateTokenAsync(token).flatMap {
+                case Right(claims) => Future.successful(claims)
+                case Left(_) => Future.failed(new UnauthorizedAccessException)
+              }
+              firebaseId = claims.getOrElse("user_id", "").asInstanceOf[String]
+
+              // Get user from Firebase ID
+              requestingUserOpt <- userService.findByFirebaseId(firebaseId)
+              requestingUser <- requestingUserOpt match {
+                case Some(user) => Future.successful(user)
+                case None => Future.failed(new UserNotFoundException("User not found"))
+              }
+
+              // Delete the photo (authorization checks handled in service)
+              _ <- photoService.deletePhoto(photoId, requestingUser.id)
+            } yield {
+              logger.info("DELETE /api/photos/{photoId} - Success response",
+                "photoId", photoId.toString,
+                "userId", requestingUser.id.toString,
+                "status", StatusCodes.NoContent.intValue)
+              HttpResponse(
+                status = StatusCodes.NoContent,
+                entity = HttpEntity.Empty
+              )
+            }
+
+            onComplete(result) {
+              case Success(response) => complete(response)
+              case Failure(exception) =>
+                val errorStatus = exception match {
+                  case _: UserNotFoundException => StatusCodes.NotFound
+                  case _: UnauthorizedAccessException => StatusCodes.Forbidden
+                  case ex if ex.getMessage.contains("not found") => StatusCodes.NotFound
+                  case ex if ex.getMessage.contains("access denied") => StatusCodes.Forbidden
+                  case _ => StatusCodes.InternalServerError
+                }
+                val errorMsg = exception.getMessage
+                logger.error("DELETE /api/photos/{photoId} - Error response",
+                  exception,
+                  "photoId", photoId.toString,
+                  "error", errorMsg,
+                  "status", errorStatus.intValue)
+                complete(HttpResponse(
+                  status = errorStatus,
+                  entity = HttpEntity(ContentTypes.`application/json`,
+                    s"""{\"error\": \"$errorMsg\"}""")
+                ))
+            }
+
+          case _ =>
+            val errorMsg = "Missing or invalid Authorization header"
+            logger.error("DELETE /api/photos/{photoId} - Unauthorized (Missing auth)",
+              "photoId", photoId.toString,
+              "error", errorMsg,
+              "status", StatusCodes.Unauthorized.intValue)
+            complete(HttpResponse(
+              status = StatusCodes.Unauthorized,
+              entity = HttpEntity(ContentTypes.`application/json`,
+                s"""{\"error\": \"$errorMsg\"}""")
+            ))
+        }
+      }
+    }
+  }
+
+  def routes: Route = photosRoute ~ deletePhotoRoute
 }

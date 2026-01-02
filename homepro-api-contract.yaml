@@ -31,6 +31,8 @@ info:
     - ✅ Support request management
     - ✅ User and home management with JSONB metadata support
     - ✅ CORS support with origin restrictions for security
+    - ✅ Delete operations with cascading deletes and proper authorization
+    - ✅ S3 cleanup for deleted photos and comprehensive data removal
     
     ## CORS Configuration
     All endpoints support CORS (Cross-Origin Resource Sharing) to enable requests from web browsers.
@@ -276,6 +278,64 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /api/homes/{homeId}:
+    delete:
+      tags:
+        - Homes
+      summary: Delete a home with cascading deletes
+      description: |
+        Permanently deletes a home and all associated data including:
+        - All photos associated with the home and its items
+        - All home items belonging to the home
+        - Home ownership records
+        - The home itself
+
+        **Important:**
+        - This operation is irreversible
+        - Only the home owner can delete the home
+        - All data will be removed from both database and S3 storage
+        - Authorization is strictly enforced
+
+        **Cascading Delete Order:**
+        1. Photos (from S3 and database)
+        2. Home items
+        3. Home ownership records
+        4. Home record
+      security:
+        - FirebaseAuth: []
+      parameters:
+        - name: homeId
+          in: path
+          required: true
+          description: UUID of the home to delete
+          schema:
+            type: string
+            format: uuid
+          example: "ace55e40-b56d-43c1-b738-5eee8f1ccdf1"
+      responses:
+        '204':
+          description: Home deleted successfully (no content)
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Forbidden - User doesn't own this home
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Home not found or access denied"
+        '404':
+          description: Home not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Home not found or access denied"
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /api/homes/{homeId}/items:
     get:
       tags:
@@ -478,6 +538,77 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
               example:
                 error: "User does not have access to this home"
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/homes/{homeId}/items/{itemId}:
+    delete:
+      tags:
+        - Home Items
+      summary: Delete a home item with associated photos
+      description: |
+        Permanently deletes a home item and all its associated photos.
+
+        **Delete Process:**
+        1. Deletes all photos associated with the home item (from S3 and database)
+        2. Deletes the home item record
+
+        **Authorization:**
+        - User must own the home that contains this item
+        - Item must belong to the specified home
+        - Firebase JWT token required
+
+        **Important:**
+        - This operation is irreversible
+        - All photos associated with this item will be permanently deleted
+        - Photos are removed from both database and S3 storage
+      security:
+        - FirebaseAuth: []
+      parameters:
+        - name: homeId
+          in: path
+          required: true
+          description: UUID of the home containing the item
+          schema:
+            type: string
+            format: uuid
+          example: "ace55e40-b56d-43c1-b738-5eee8f1ccdf1"
+        - name: itemId
+          in: path
+          required: true
+          description: UUID of the home item to delete
+          schema:
+            type: string
+            format: uuid
+          example: "d26d981c-0c6e-41ae-b9f9-8a9ad6e66c94"
+      responses:
+        '204':
+          description: Home item deleted successfully (no content)
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Forbidden - User doesn't have access to this home
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                no_home_access:
+                  summary: No access to home
+                  value:
+                    error: "User does not have access to this home"
+                item_wrong_home:
+                  summary: Item doesn't belong to home
+                  value:
+                    error: "Home item does not belong to the specified home"
+        '404':
+          description: Home item not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Home item not found"
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -702,6 +833,95 @@ paths:
                   summary: Database save failure
                   value:
                     error: "Failed to save photo to database"
+
+  /api/photos/{photoId}:
+    delete:
+      tags:
+        - Photos
+      summary: Delete an individual photo
+      description: |
+        Permanently deletes a specific photo from both the database and S3 storage.
+
+        **Authorization Rules:**
+        - For home item photos: User must own the home containing the item
+        - For home photos: User must own the home
+        - For user photos: Must be the same user
+        - For orphaned photos: Must be the photo creator
+
+        **Delete Process:**
+        1. Validates photo exists and user has permission
+        2. Deletes photo from S3 storage (using context-based path)
+        3. Removes photo record from database
+        4. Continues with database deletion even if S3 deletion fails
+
+        **Context-Based S3 Paths:**
+        - Home item photos: `{home_item_id}/{filename}`
+        - Home photos: `{home_id}/{filename}`
+        - User photos: `{user_id}/{filename}`
+        - Legacy photos: Direct S3 key path
+
+        **Important:**
+        - This operation is irreversible
+        - Photo will be removed from both database and S3
+        - Authorization is strictly enforced based on photo context
+      security:
+        - FirebaseAuth: []
+      parameters:
+        - name: photoId
+          in: path
+          required: true
+          description: UUID of the photo to delete
+          schema:
+            type: string
+            format: uuid
+          example: "photo-uuid-1"
+      responses:
+        '204':
+          description: Photo deleted successfully (no content)
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Forbidden - User doesn't have permission to delete this photo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                home_item_access_denied:
+                  summary: No access to home containing item
+                  value:
+                    error: "Photo access denied - user does not own the home"
+                user_photo_access_denied:
+                  summary: Not user's photo
+                  value:
+                    error: "Photo access denied - not your photo"
+                creator_access_denied:
+                  summary: Not photo creator
+                  value:
+                    error: "Photo access denied - you did not create this photo"
+        '404':
+          description: Photo not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Photo not found"
+        '500':
+          description: Internal server error - S3 or database failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                s3_delete_failed:
+                  summary: S3 deletion failed (but database deletion may continue)
+                  value:
+                    error: "Failed to delete photo from S3"
+                database_delete_failed:
+                  summary: Database deletion failed
+                  value:
+                    error: "Failed to delete photo from database"
 
   # Support Request APIs
   /api/support-requests:
@@ -1523,15 +1743,19 @@ tags:
   - name: Authentication
     description: User authentication and session management
   - name: Homes
-    description: Home management and statistics
+    description: |
+      Home management, statistics, and deletion operations.
+      Includes cascading delete functionality with proper authorization.
   - name: Home Items
     description: |
-      Home inventory item management with CORS support.
+      Home inventory item management with CORS support and delete operations.
       All endpoints support cross-origin requests from web browsers.
+      Delete operations include cascading photo deletion.
   - name: Photos
     description: |
-      Photo management with S3 integration and CORS support.
+      Photo management with S3 integration, CORS support, and deletion capabilities.
       File uploads via multipart/form-data with automatic preflight handling.
+      Delete operations remove photos from both database and S3 storage.
   - name: Support Requests
     description: Service request lifecycle management
 
