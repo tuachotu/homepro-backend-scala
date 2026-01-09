@@ -114,6 +114,94 @@ class PhotoRepository()(implicit ec: ExecutionContext) {
       .map(_.getOrElse(false))
   }
 
+  def updatePhotoPrimary(photoId: UUID, isPrimary: Boolean): Future[Int] = {
+    val sql = """
+      UPDATE photos
+      SET is_primary = ?
+      WHERE id = ?
+    """
+
+    logger.debug("Executing updatePhotoPrimary SQL query",
+      "sql", sql.trim,
+      "isPrimary", isPrimary,
+      "photoId", photoId.toString)
+
+    DatabaseConnection.executeUpdate(sql, isPrimary, photoId).map { rowsAffected =>
+      logger.debug("updatePhotoPrimary SQL query completed",
+        "photoId", photoId.toString,
+        "isPrimary", isPrimary,
+        "rowsAffected", rowsAffected)
+      logger.info(s"Updated photo $photoId primary status to $isPrimary")
+      rowsAffected
+    }
+  }
+
+  def clearPrimaryForHomeItem(homeItemId: UUID, excludePhotoId: UUID): Future[Int] = {
+    val sql = """
+      UPDATE photos
+      SET is_primary = false
+      WHERE home_item_id = ? AND id != ?
+    """
+
+    logger.debug("Executing clearPrimaryForHomeItem SQL query",
+      "sql", sql.trim,
+      "homeItemId", homeItemId.toString,
+      "excludePhotoId", excludePhotoId.toString)
+
+    DatabaseConnection.executeUpdate(sql, homeItemId, excludePhotoId).map { rowsAffected =>
+      logger.debug("clearPrimaryForHomeItem SQL query completed",
+        "homeItemId", homeItemId.toString,
+        "excludePhotoId", excludePhotoId.toString,
+        "rowsAffected", rowsAffected)
+      logger.info(s"Cleared primary status for $rowsAffected photos in home item $homeItemId")
+      rowsAffected
+    }
+  }
+
+  def clearPrimaryForHome(homeId: UUID, excludePhotoId: UUID): Future[Int] = {
+    val sql = """
+      UPDATE photos
+      SET is_primary = false
+      WHERE home_id = ? AND home_item_id IS NULL AND id != ?
+    """
+
+    logger.debug("Executing clearPrimaryForHome SQL query",
+      "sql", sql.trim,
+      "homeId", homeId.toString,
+      "excludePhotoId", excludePhotoId.toString)
+
+    DatabaseConnection.executeUpdate(sql, homeId, excludePhotoId).map { rowsAffected =>
+      logger.debug("clearPrimaryForHome SQL query completed",
+        "homeId", homeId.toString,
+        "excludePhotoId", excludePhotoId.toString,
+        "rowsAffected", rowsAffected)
+      logger.info(s"Cleared primary status for $rowsAffected photos in home $homeId")
+      rowsAffected
+    }
+  }
+
+  def clearPrimaryForUser(userId: UUID, excludePhotoId: UUID): Future[Int] = {
+    val sql = """
+      UPDATE photos
+      SET is_primary = false
+      WHERE user_id = ? AND home_id IS NULL AND home_item_id IS NULL AND id != ?
+    """
+
+    logger.debug("Executing clearPrimaryForUser SQL query",
+      "sql", sql.trim,
+      "userId", userId.toString,
+      "excludePhotoId", excludePhotoId.toString)
+
+    DatabaseConnection.executeUpdate(sql, userId, excludePhotoId).map { rowsAffected =>
+      logger.debug("clearPrimaryForUser SQL query completed",
+        "userId", userId.toString,
+        "excludePhotoId", excludePhotoId.toString,
+        "rowsAffected", rowsAffected)
+      logger.info(s"Cleared primary status for $rowsAffected photos for user $userId")
+      rowsAffected
+    }
+  }
+
   private def extractPhotoWithDetails(rs: ResultSet): PhotoWithDetails = {
     val photo = Photo(
       id = rs.getObject("id").asInstanceOf[UUID],

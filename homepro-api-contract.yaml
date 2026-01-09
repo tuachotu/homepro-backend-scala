@@ -33,13 +33,14 @@ info:
     - ✅ CORS support with origin restrictions for security
     - ✅ Delete operations with cascading deletes and proper authorization
     - ✅ S3 cleanup for deleted photos and comprehensive data removal
+    - ✅ Photo primary status management with automatic constraint enforcement
     
     ## CORS Configuration
     All endpoints support CORS (Cross-Origin Resource Sharing) to enable requests from web browsers.
     
     **Supported CORS Headers:**
     - `Access-Control-Allow-Origin:` Restricted to `http://localhost:3000` and `https://home-owners.tech`
-    - `Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS`
+    - `Access-Control-Allow-Methods: GET, POST, PATCH, PUT, DELETE, OPTIONS`
     - `Access-Control-Allow-Headers: Authorization, Content-Type, X-Requested-With`
     - `Access-Control-Max-Age: 86400` (24 hours preflight cache)
     - `Access-Control-Allow-Credentials: true` (for authenticated requests)
@@ -923,6 +924,120 @@ paths:
                   value:
                     error: "Failed to delete photo from database"
 
+  /api/photos/{photoId}/primary:
+    patch:
+      tags:
+        - Photos
+      summary: Set photo as primary for its context
+      description: |
+        Updates a photo's primary status for its associated context (home item, home, or user).
+        Only one photo per context can be marked as primary at any given time.
+
+        **Business Rules:**
+        - When setting `isPrimary: true`, all other photos in the same context are automatically unmarked
+        - When setting `isPrimary: false`, only this photo's primary status is removed
+        - Context is determined by photo's association: homeItemId > homeId > userId
+        - Authorization follows same rules as photo deletion
+
+        **Context Types:**
+        - **Home Item Photos:** One primary photo per home item (photos with homeItemId)
+        - **Home Photos:** One primary photo per home (photos with homeId but no homeItemId)
+        - **User Photos:** One primary photo per user (photos with userId but no homeId/homeItemId)
+
+        **Authorization Rules:**
+        - For home item photos: User must own the home containing the item
+        - For home photos: User must own the home
+        - For user photos: Must be the same user
+        - For orphaned photos: Must be the photo creator
+
+        **Important:**
+        - Primary photos are typically displayed first in photo galleries
+        - Used to represent home items visually in lists and summaries
+        - The "one primary per context" constraint is enforced automatically
+      security:
+        - FirebaseAuth: []
+      parameters:
+        - name: photoId
+          in: path
+          required: true
+          description: UUID of the photo to update
+          schema:
+            type: string
+            format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePhotoPrimaryRequest'
+            examples:
+              set_primary:
+                summary: Set as primary photo
+                description: Mark this photo as primary (clears other primary photos in same context)
+                value:
+                  isPrimary: true
+              unset_primary:
+                summary: Remove primary status
+                description: Remove primary status from this photo
+                value:
+                  isPrimary: false
+      responses:
+        '200':
+          description: Photo primary status updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdatePhotoPrimaryResponse'
+              example:
+                id: "550e8400-e29b-41d4-a716-446655440000"
+                homeItemId: "d26d981c-0c6e-41ae-b9f9-8a9ad6e66c94"
+                fileName: "IMG_3372.JPG"
+                isPrimary: true
+                message: "Photo primary status updated successfully"
+        '400':
+          description: Bad request - Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_json:
+                  summary: Invalid JSON format
+                  value:
+                    error: "Invalid request body: Expected JSON object with isPrimary field"
+                missing_field:
+                  summary: Missing required field
+                  value:
+                    error: "Invalid request body: Missing required field 'isPrimary'"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Forbidden - User doesn't have permission to update this photo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                home_item_access_denied:
+                  summary: No access to home containing item
+                  value:
+                    error: "Photo access denied - user does not own the home"
+                user_photo_access_denied:
+                  summary: Not user's photo
+                  value:
+                    error: "Photo access denied - not your photo"
+        '404':
+          description: Photo not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Photo not found"
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   # Support Request APIs
   /api/support-requests:
     get:
@@ -1446,6 +1561,50 @@ components:
           description: Presigned S3 URL for immediate photo access (valid for 24 hours)
           example: "https://homepro-photos.s3.amazonaws.com/d26d981c-0c6e-41ae-b9f9-8a9ad6e66c94/IMG_3372.JPG?presigned-params"
 
+    UpdatePhotoPrimaryRequest:
+      type: object
+      required:
+        - isPrimary
+      properties:
+        isPrimary:
+          type: boolean
+          description: |
+            Set to true to mark this photo as primary (automatically unmarking other photos in same context).
+            Set to false to remove primary status from this photo.
+          example: true
+
+    UpdatePhotoPrimaryResponse:
+      type: object
+      required:
+        - id
+        - fileName
+        - isPrimary
+        - message
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: UUID of the updated photo
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        homeItemId:
+          type: string
+          format: uuid
+          nullable: true
+          description: UUID of the home item this photo is associated with (if applicable)
+          example: "d26d981c-0c6e-41ae-b9f9-8a9ad6e66c94"
+        fileName:
+          type: string
+          description: Filename of the photo
+          example: "IMG_3372.JPG"
+        isPrimary:
+          type: boolean
+          description: Updated primary status of the photo
+          example: true
+        message:
+          type: string
+          description: Success confirmation message
+          example: "Photo primary status updated successfully"
+
     # Support Request Schemas
     CreateSupportRequest:
       type: object
@@ -1610,7 +1769,7 @@ components:
           description: Allowed HTTP methods for CORS requests
           schema:
             type: string
-            example: "GET, POST, PUT, DELETE, OPTIONS"
+            example: "GET, POST, PATCH, PUT, DELETE, OPTIONS"
         Access-Control-Allow-Headers:
           description: Allowed headers for CORS requests
           schema:
