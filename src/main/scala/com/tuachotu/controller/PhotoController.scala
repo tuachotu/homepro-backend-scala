@@ -31,6 +31,10 @@ class PhotoController()(implicit ec: ExecutionContext, mat: Materializer) {
 
   import PhotoResponseProtocol._
   import PhotoUploadResponseProtocol._
+  import com.tuachotu.model.request.{UpdatePhotoPrimaryRequest, UpdatePhotoPrimaryRequestJsonProtocol}
+  import com.tuachotu.model.response.{UpdatePhotoPrimaryResponse, UpdatePhotoPrimaryResponseProtocol}
+  import UpdatePhotoPrimaryRequestJsonProtocol._
+  import UpdatePhotoPrimaryResponseProtocol._
 
   // Define CORS settings with allowed origins
   val corsSettings: CorsSettings = CorsSettings.defaultSettings
@@ -416,5 +420,137 @@ class PhotoController()(implicit ec: ExecutionContext, mat: Materializer) {
     }
   }
 
-  def routes: Route = photosRoute ~ deletePhotoRoute
+  def updatePhotoPrimaryRoute: Route = cors(corsSettings) {
+    path("api" / "photos" / JavaUUID / "primary") { photoId =>
+      patch {
+        optionalHeaderValueByName("Authorization") {
+          case Some(authHeader) if authHeader.startsWith("Bearer ") =>
+            val token = authHeader.substring(7)
+
+            entity(as[String]) { requestBody =>
+              // Debug log for incoming request
+              logger.debug("PATCH /api/photos/{photoId}/primary - Request received",
+                "photoId", photoId.toString,
+                "requestBody", requestBody,
+                "hasAuthToken", "true")
+
+              val result = for {
+                // Parse request body
+                request <- Try(requestBody.parseJson.convertTo[UpdatePhotoPrimaryRequest]) match {
+                  case Success(req) =>
+                    logger.debug("PATCH /api/photos/{photoId}/primary - Request parsed",
+                      "photoId", photoId.toString,
+                      "isPrimary", req.isPrimary)
+                    Future.successful(req)
+                  case Failure(ex) =>
+                    logger.debug("PATCH /api/photos/{photoId}/primary - Failed to parse request",
+                      "photoId", photoId.toString,
+                      "error", ex.getMessage)
+                    Future.failed(new IllegalArgumentException(s"Invalid request body: ${ex.getMessage}"))
+                }
+
+                // Validate Firebase token
+                claims <- FirebaseAuthHandler.validateTokenAsync(token).flatMap {
+                  case Right(claims) =>
+                    logger.debug("PATCH /api/photos/{photoId}/primary - Firebase token validated",
+                      "photoId", photoId.toString,
+                      "firebaseUid", claims.getOrElse("user_id", "unknown"))
+                    Future.successful(claims)
+                  case Left(error) =>
+                    logger.debug("PATCH /api/photos/{photoId}/primary - Firebase token validation failed",
+                      "photoId", photoId.toString,
+                      "error", error)
+                    Future.failed(new UnauthorizedAccessException)
+                }
+                firebaseId = claims.getOrElse("user_id", "").asInstanceOf[String]
+
+                // Get user from Firebase ID
+                requestingUserOpt <- userService.findByFirebaseId(firebaseId)
+                requestingUser <- requestingUserOpt match {
+                  case Some(user) =>
+                    logger.debug("PATCH /api/photos/{photoId}/primary - User found",
+                      "photoId", photoId.toString,
+                      "userId", user.id.toString)
+                    Future.successful(user)
+                  case None =>
+                    logger.debug("PATCH /api/photos/{photoId}/primary - User not found",
+                      "photoId", photoId.toString,
+                      "firebaseId", firebaseId)
+                    Future.failed(new UserNotFoundException("User not found"))
+                }
+
+                // Update photo primary status
+                response <- photoService.updatePhotoPrimary(photoId, request.isPrimary, requestingUser.id)
+              } yield {
+                val responseJson = response.toJson.compactPrint
+                logger.debug("PATCH /api/photos/{photoId}/primary - Response generated",
+                  "photoId", photoId.toString,
+                  "isPrimary", request.isPrimary,
+                  "responseBody", responseJson,
+                  "status", StatusCodes.OK.intValue)
+                logger.info("PATCH /api/photos/{photoId}/primary - Success",
+                  "photoId", photoId.toString,
+                  "isPrimary", request.isPrimary,
+                  "status", StatusCodes.OK.intValue)
+                HttpResponse(
+                  status = StatusCodes.OK,
+                  entity = HttpEntity(ContentTypes.`application/json`, responseJson)
+                )
+              }
+
+              onComplete(result) {
+                case Success(response) => complete(response)
+                case Failure(exception) =>
+                  val errorStatus = exception match {
+                    case _: UserNotFoundException => StatusCodes.NotFound
+                    case _: UnauthorizedAccessException => StatusCodes.Unauthorized
+                    case _: IllegalArgumentException => StatusCodes.BadRequest
+                    case ex if ex.getMessage.contains("not found") => StatusCodes.NotFound
+                    case ex if ex.getMessage.contains("access denied") => StatusCodes.Forbidden
+                    case _ => StatusCodes.InternalServerError
+                  }
+                  val errorMsg = exception.getMessage
+                  val errorJson = s"""{\"error\": \"$errorMsg\"}"""
+
+                  // Use Info for 4XX, Error for 5XX
+                  if (errorStatus.intValue >= 500) {
+                    logger.error("PATCH /api/photos/{photoId}/primary - Server error",
+                      exception,
+                      "photoId", photoId.toString,
+                      "error", errorMsg,
+                      "status", errorStatus.intValue,
+                      "responseBody", errorJson)
+                  } else {
+                    logger.info("PATCH /api/photos/{photoId}/primary - Client error",
+                      "photoId", photoId.toString,
+                      "error", errorMsg,
+                      "status", errorStatus.intValue,
+                      "responseBody", errorJson)
+                  }
+
+                  complete(HttpResponse(
+                    status = errorStatus,
+                    entity = HttpEntity(ContentTypes.`application/json`, errorJson)
+                  ))
+              }
+            }
+
+          case _ =>
+            val errorMsg = "Missing or invalid Authorization header"
+            val errorJson = s"""{\"error\": \"$errorMsg\"}"""
+            logger.info("PATCH /api/photos/{photoId}/primary - Unauthorized",
+              "photoId", photoId.toString,
+              "error", errorMsg,
+              "status", StatusCodes.Unauthorized.intValue,
+              "responseBody", errorJson)
+            complete(HttpResponse(
+              status = StatusCodes.Unauthorized,
+              entity = HttpEntity(ContentTypes.`application/json`, errorJson)
+            ))
+        }
+      }
+    }
+  }
+
+  def routes: Route = photosRoute ~ deletePhotoRoute ~ updatePhotoPrimaryRoute
 }

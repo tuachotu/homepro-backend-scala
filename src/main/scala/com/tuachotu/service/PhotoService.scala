@@ -67,6 +67,115 @@ class PhotoService(
     }
   }
 
+  def updatePhotoPrimary(photoId: UUID, isPrimary: Boolean, userId: UUID): Future[com.tuachotu.model.response.UpdatePhotoPrimaryResponse] = {
+    logger.debug("PhotoService.updatePhotoPrimary - Starting",
+      "photoId", photoId.toString,
+      "isPrimary", isPrimary,
+      "userId", userId.toString)
+
+    for {
+      // Get the photo to verify it exists
+      photoOpt <- photoRepository.findPhotoById(photoId)
+      photo <- photoOpt match {
+        case Some(p) =>
+          logger.debug("PhotoService.updatePhotoPrimary - Photo found",
+            "photoId", photoId.toString,
+            "homeItemId", p.homeItemId.map(_.toString).getOrElse("null"),
+            "homeId", p.homeId.map(_.toString).getOrElse("null"),
+            "userId", p.userId.map(_.toString).getOrElse("null"),
+            "currentIsPrimary", p.isPrimary)
+          Future.successful(p)
+        case None =>
+          logger.debug("PhotoService.updatePhotoPrimary - Photo not found",
+            "photoId", photoId.toString)
+          Future.failed(new RuntimeException("Photo not found"))
+      }
+
+      // Check authorization: user must own the home where this photo belongs
+      _ <- {
+        logger.debug("PhotoService.updatePhotoPrimary - Checking authorization",
+          "photoId", photoId.toString,
+          "userId", userId.toString)
+        checkPhotoDeleteAuthorization(photo, userId).map { _ =>
+          logger.debug("PhotoService.updatePhotoPrimary - Authorization passed",
+            "photoId", photoId.toString,
+            "userId", userId.toString)
+        }
+      }
+
+      // If setting as primary, clear other photos in the same context
+      _ <- if (isPrimary) {
+        // Determine context and clear other primary photos
+        if (photo.homeItemId.isDefined) {
+          logger.debug("PhotoService.updatePhotoPrimary - Clearing primary for home item context",
+            "photoId", photoId.toString,
+            "homeItemId", photo.homeItemId.get.toString)
+          photoRepository.clearPrimaryForHomeItem(photo.homeItemId.get, photoId)
+        } else if (photo.homeId.isDefined) {
+          logger.debug("PhotoService.updatePhotoPrimary - Clearing primary for home context",
+            "photoId", photoId.toString,
+            "homeId", photo.homeId.get.toString)
+          photoRepository.clearPrimaryForHome(photo.homeId.get, photoId)
+        } else if (photo.userId.isDefined) {
+          logger.debug("PhotoService.updatePhotoPrimary - Clearing primary for user context",
+            "photoId", photoId.toString,
+            "userId", photo.userId.get.toString)
+          photoRepository.clearPrimaryForUser(photo.userId.get, photoId)
+        } else {
+          logger.debug("PhotoService.updatePhotoPrimary - No context found, skipping clear",
+            "photoId", photoId.toString)
+          Future.successful(0) // No context to clear
+        }
+      } else {
+        logger.debug("PhotoService.updatePhotoPrimary - Not setting as primary, skipping clear",
+          "photoId", photoId.toString)
+        Future.successful(0) // Not setting as primary, no need to clear others
+      }
+
+      // Update this photo's primary status
+      _ <- {
+        logger.debug("PhotoService.updatePhotoPrimary - Updating photo primary status",
+          "photoId", photoId.toString,
+          "isPrimary", isPrimary)
+        photoRepository.updatePhotoPrimary(photoId, isPrimary)
+      }
+
+      // Fetch updated photo for response
+      updatedPhotoOpt <- photoRepository.findPhotoById(photoId)
+      updatedPhoto <- updatedPhotoOpt match {
+        case Some(p) =>
+          logger.debug("PhotoService.updatePhotoPrimary - Photo updated successfully",
+            "photoId", photoId.toString,
+            "newIsPrimary", p.isPrimary)
+          Future.successful(p)
+        case None =>
+          logger.error("PhotoService.updatePhotoPrimary - Photo not found after update",
+            "photoId", photoId.toString)
+          Future.failed(new RuntimeException("Photo not found after update"))
+      }
+
+    } yield {
+      logger.info(s"Updated photo $photoId primary status to $isPrimary",
+        "photoId", photoId.toString,
+        "isPrimary", isPrimary,
+        "userId", userId.toString)
+
+      logger.debug("PhotoService.updatePhotoPrimary - Creating response",
+        "photoId", photoId.toString,
+        "homeItemId", updatedPhoto.homeItemId.map(_.toString).getOrElse("null"),
+        "fileName", updatedPhoto.fileName.getOrElse("unknown"),
+        "isPrimary", updatedPhoto.isPrimary)
+
+      com.tuachotu.model.response.UpdatePhotoPrimaryResponse(
+        id = updatedPhoto.id.toString,
+        homeItemId = updatedPhoto.homeItemId.map(_.toString),
+        fileName = updatedPhoto.fileName.getOrElse("unknown"),
+        isPrimary = updatedPhoto.isPrimary,
+        message = "Photo primary status updated successfully"
+      )
+    }
+  }
+
   private def checkPhotoDeleteAuthorization(photo: Photo, userId: UUID): Future[Unit] = {
     // For photos associated with home items, check if user owns the home
     if (photo.homeItemId.isDefined) {
