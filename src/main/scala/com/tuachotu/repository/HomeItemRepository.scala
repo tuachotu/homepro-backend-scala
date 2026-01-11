@@ -52,11 +52,12 @@ class HomeItemRepository()(implicit ec: ExecutionContext) {
     // For simplicity, let's start with a basic query and add filters if needed
     val sql = if (itemType.isEmpty && emergency.isEmpty) {
       """
-        SELECT 
-          hi.id, hi.home_id, hi.name, hi.type, hi.is_emergency, hi.data, 
+        SELECT
+          hi.id, hi.home_id, hi.name, hi.type, hi.is_emergency, hi.data,
           hi.created_by, hi.created_at,
           COALESCE(photo_count.count, 0) as photo_count,
-          pp.s3_key as primary_s3_key
+          pp.s3_key as primary_s3_key,
+          COALESCE(note_count.count, 0) as note_count
         FROM home_items hi
         LEFT JOIN (
           SELECT home_item_id, COUNT(*) as count
@@ -65,8 +66,14 @@ class HomeItemRepository()(implicit ec: ExecutionContext) {
           GROUP BY home_item_id
         ) photo_count ON hi.id = photo_count.home_item_id
         LEFT JOIN photos pp ON hi.id = pp.home_item_id AND pp.is_primary = true
+        LEFT JOIN (
+          SELECT home_item_id, COUNT(*) as count
+          FROM notes
+          WHERE home_item_id IS NOT NULL AND deleted_at IS NULL
+          GROUP BY home_item_id
+        ) note_count ON hi.id = note_count.home_item_id
         WHERE hi.home_id = ?
-        ORDER BY hi.is_emergency DESC, hi.created_at DESC 
+        ORDER BY hi.is_emergency DESC, hi.created_at DESC
         LIMIT ? OFFSET ?
       """
     } else {
@@ -84,11 +91,12 @@ class HomeItemRepository()(implicit ec: ExecutionContext) {
   
   private def buildDynamicQuery(itemType: Option[String], emergency: Option[Boolean]): String = {
     val baseQuery = """
-      SELECT 
-        hi.id, hi.home_id, hi.name, hi.type, hi.is_emergency, hi.data, 
+      SELECT
+        hi.id, hi.home_id, hi.name, hi.type, hi.is_emergency, hi.data,
         hi.created_by, hi.created_at,
         COALESCE(photo_count.count, 0) as photo_count,
-        pp.s3_key as primary_s3_key
+        pp.s3_key as primary_s3_key,
+        COALESCE(note_count.count, 0) as note_count
       FROM home_items hi
       LEFT JOIN (
         SELECT home_item_id, COUNT(*) as count
@@ -97,6 +105,12 @@ class HomeItemRepository()(implicit ec: ExecutionContext) {
         GROUP BY home_item_id
       ) photo_count ON hi.id = photo_count.home_item_id
       LEFT JOIN photos pp ON hi.id = pp.home_item_id AND pp.is_primary = true
+      LEFT JOIN (
+        SELECT home_item_id, COUNT(*) as count
+        FROM notes
+        WHERE home_item_id IS NOT NULL AND deleted_at IS NULL
+        GROUP BY home_item_id
+      ) note_count ON hi.id = note_count.home_item_id
       WHERE hi.home_id = ?
     """
     
@@ -119,11 +133,12 @@ class HomeItemRepository()(implicit ec: ExecutionContext) {
 
   def findItemById(itemId: UUID): Future[Option[HomeItemEnhanced]] = {
     val sql = """
-      SELECT 
-        hi.id, hi.home_id, hi.name, hi.type, hi.is_emergency, hi.data, 
+      SELECT
+        hi.id, hi.home_id, hi.name, hi.type, hi.is_emergency, hi.data,
         hi.created_by, hi.created_at,
         COALESCE(photo_count.count, 0) as photo_count,
-        pp.s3_key as primary_s3_key
+        pp.s3_key as primary_s3_key,
+        COALESCE(note_count.count, 0) as note_count
       FROM home_items hi
       LEFT JOIN (
         SELECT home_item_id, COUNT(*) as count
@@ -132,6 +147,12 @@ class HomeItemRepository()(implicit ec: ExecutionContext) {
         GROUP BY home_item_id
       ) photo_count ON hi.id = photo_count.home_item_id
       LEFT JOIN photos pp ON hi.id = pp.home_item_id AND pp.is_primary = true
+      LEFT JOIN (
+        SELECT home_item_id, COUNT(*) as count
+        FROM notes
+        WHERE home_item_id IS NOT NULL AND deleted_at IS NULL
+        GROUP BY home_item_id
+      ) note_count ON hi.id = note_count.home_item_id
       WHERE hi.id = ?
     """
 
@@ -143,7 +164,8 @@ class HomeItemRepository()(implicit ec: ExecutionContext) {
       SELECT
         COUNT(*) as total_items,
         COUNT(CASE WHEN is_emergency THEN 1 END) as emergency_items,
-        COALESCE(photo_stats.total_photos, 0) as total_photos
+        COALESCE(photo_stats.total_photos, 0) as total_photos,
+        COALESCE(note_stats.total_notes, 0) as total_notes
       FROM home_items hi
       LEFT JOIN (
         SELECT
@@ -153,16 +175,25 @@ class HomeItemRepository()(implicit ec: ExecutionContext) {
           SELECT id FROM home_items WHERE home_id = ?
         )
       ) photo_stats ON 1=1
+      LEFT JOIN (
+        SELECT
+          COUNT(DISTINCT n1.id) as total_notes
+        FROM notes n1
+        WHERE (n1.home_id = ? OR n1.home_item_id IN (
+          SELECT id FROM home_items WHERE home_id = ?
+        )) AND n1.deleted_at IS NULL
+      ) note_stats ON 1=1
       WHERE hi.home_id = ?
     """
 
-    DatabaseConnection.executeQuerySingle(sql, homeId, homeId, homeId)(rs =>
+    DatabaseConnection.executeQuerySingle(sql, homeId, homeId, homeId, homeId, homeId)(rs =>
       HomeStatsResponse(
         total_items = rs.getInt("total_items"),
         total_photos = rs.getInt("total_photos"),
-        emergency_items = rs.getInt("emergency_items")
+        emergency_items = rs.getInt("emergency_items"),
+        total_notes = rs.getInt("total_notes")
       )
-    ).map(_.getOrElse(HomeStatsResponse(0, 0, 0)))
+    ).map(_.getOrElse(HomeStatsResponse(0, 0, 0, 0)))
   }
 
   def deletePhotosByHomeItemId(homeItemId: UUID): Future[Unit] = {
@@ -201,7 +232,8 @@ class HomeItemRepository()(implicit ec: ExecutionContext) {
       createdBy = Option(rs.getObject("created_by")).map(_.asInstanceOf[UUID]),
       createdAt = rs.getTimestamp("created_at").toLocalDateTime,
       photoCount = rs.getInt("photo_count"),
-      primaryS3Key = Option(rs.getString("primary_s3_key"))
+      primaryS3Key = Option(rs.getString("primary_s3_key")),
+      noteCount = rs.getInt("note_count")
     )
   }
 }

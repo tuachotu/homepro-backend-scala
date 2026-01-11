@@ -123,9 +123,9 @@ paths:
         - Homes
       summary: Get homes for a user
       description: |
-        Retrieves all homes that the authenticated user has access to, 
-        along with comprehensive statistics including item counts, photo counts, 
-        and emergency item counts.
+        Retrieves all homes that the authenticated user has access to,
+        along with comprehensive statistics including item counts, photo counts,
+        note counts, and emergency item counts.
       security:
         - FirebaseAuth: []
       parameters:
@@ -157,6 +157,7 @@ paths:
                     total_items: 25
                     total_photos: 48
                     emergency_items: 3
+                    total_notes: 12
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -345,7 +346,7 @@ paths:
       summary: Get items for a specific home
       description: |
         Retrieves all items within a home with optional filtering by type and emergency status.
-        Includes photo counts and pre-signed URLs for primary photos.
+        Includes photo counts, note counts, and pre-signed URLs for primary photos.
         Supports pagination for large inventories.
       security:
         - FirebaseAuth: []
@@ -412,6 +413,7 @@ paths:
                   created_at: "2025-08-11T12:00:00"
                   photo_count: 1
                   primary_photo_url: "https://homepro-photos.s3.amazonaws.com/presigned-url"
+                  note_count: 5
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -1630,6 +1632,7 @@ components:
         - total_items
         - total_photos
         - emergency_items
+        - total_notes
       properties:
         total_items:
           type: integer
@@ -1646,6 +1649,11 @@ components:
           minimum: 0
           description: Number of items marked as emergency
           example: 3
+        total_notes:
+          type: integer
+          minimum: 0
+          description: Total number of notes for this home (including notes on home and all home items, excluding soft-deleted notes)
+          example: 12
 
     AddHomeRequest:
       type: object
@@ -1793,6 +1801,7 @@ components:
         - data
         - created_at
         - photo_count
+        - note_count
       properties:
         id:
           type: string
@@ -1835,6 +1844,11 @@ components:
           nullable: true
           description: Pre-signed S3 URL for primary photo (valid for 1 hour)
           example: "https://s3.amazonaws.com/homepro-photos/signed-url"
+        note_count:
+          type: integer
+          minimum: 0
+          description: Number of notes associated with this item (excluding soft-deleted notes)
+          example: 5
 
     HomeItemType:
       type: string

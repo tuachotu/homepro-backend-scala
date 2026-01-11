@@ -119,7 +119,8 @@ class HomeService(
       stats = HomeStatsResponse(
         total_items = homeWithOwnership.totalItems,
         total_photos = homeWithOwnership.totalPhotos,
-        emergency_items = homeWithOwnership.emergencyItems
+        emergency_items = homeWithOwnership.emergencyItems,
+        total_notes = homeWithOwnership.totalNotes
       )
     )
   }

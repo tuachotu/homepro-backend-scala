@@ -63,7 +63,8 @@ case class HomeWithOwnership(
   userRole: String,
   totalItems: Int,
   totalPhotos: Int,
-  emergencyItems: Int
+  emergencyItems: Int,
+  totalNotes: Int
 )
 
 case class HomeItemEnhanced(
@@ -76,5 +77,6 @@ case class HomeItemEnhanced(
   createdBy: Option[UUID],
   createdAt: LocalDateTime,
   photoCount: Int,
-  primaryS3Key: Option[String]
+  primaryS3Key: Option[String],
+  noteCount: Int
 )

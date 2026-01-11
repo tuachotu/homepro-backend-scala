@@ -5,7 +5,8 @@ import spray.json._
 case class HomeStatsResponse(
   total_items: Int,
   total_photos: Int,
-  emergency_items: Int
+  emergency_items: Int,
+  total_notes: Int
 )
 
 case class HomeResponse(
@@ -26,11 +27,12 @@ case class HomeItemResponse(
   data: Map[String, Any],
   created_at: String,
   photo_count: Int,
-  primary_photo_url: Option[String]
+  primary_photo_url: Option[String],
+  note_count: Int
 )
 
 object HomeResponseProtocol extends DefaultJsonProtocol {
-  implicit val homeStatsResponseFormat: RootJsonFormat[HomeStatsResponse] = jsonFormat3(HomeStatsResponse.apply)
+  implicit val homeStatsResponseFormat: RootJsonFormat[HomeStatsResponse] = jsonFormat4(HomeStatsResponse.apply)
   implicit val homeResponseFormat: RootJsonFormat[HomeResponse] = jsonFormat7(HomeResponse.apply)
   
   // Custom JSON format for Map[String, Any] to handle JSONB data
@@ -60,5 +62,5 @@ object HomeResponseProtocol extends DefaultJsonProtocol {
   }
   
   implicit val mapStringAnyFormat: RootJsonFormat[Map[String, Any]] = mapFormat[String, Any]
-  implicit val homeItemResponseFormat: RootJsonFormat[HomeItemResponse] = jsonFormat8(HomeItemResponse.apply)
+  implicit val homeItemResponseFormat: RootJsonFormat[HomeItemResponse] = jsonFormat9(HomeItemResponse.apply)
 }
