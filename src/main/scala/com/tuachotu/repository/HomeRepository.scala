@@ -16,16 +16,17 @@ class HomeRepository()(implicit ec: ExecutionContext) {
 
   def findHomesByUserId(userId: UUID): Future[List[HomeWithOwnership]] = {
     val sql = """
-      SELECT 
+      SELECT
         h.id, h.address, h.name, h.is_primary, h.metadata, h.created_at, h.created_by, h.updated_at, h.updated_by,
         ho.role,
         COALESCE(item_stats.total_items, 0) as total_items,
         COALESCE(photo_stats.total_photos, 0) as total_photos,
-        COALESCE(item_stats.emergency_items, 0) as emergency_items
+        COALESCE(item_stats.emergency_items, 0) as emergency_items,
+        COALESCE(note_stats.total_notes, 0) as total_notes
       FROM homes h
       JOIN home_owners ho ON h.id = ho.home_id
       LEFT JOIN (
-        SELECT 
+        SELECT
           home_id,
           COUNT(*) as total_items,
           COUNT(CASE WHEN is_emergency THEN 1 END) as emergency_items
@@ -33,13 +34,22 @@ class HomeRepository()(implicit ec: ExecutionContext) {
         GROUP BY home_id
       ) item_stats ON h.id = item_stats.home_id
       LEFT JOIN (
-        SELECT 
+        SELECT
           home_id,
           COUNT(*) as total_photos
         FROM photos
         WHERE home_id IS NOT NULL
         GROUP BY home_id
       ) photo_stats ON h.id = photo_stats.home_id
+      LEFT JOIN (
+        SELECT
+          COALESCE(n.home_id, hi.home_id) as home_id,
+          COUNT(DISTINCT n.id) as total_notes
+        FROM notes n
+        LEFT JOIN home_items hi ON n.home_item_id = hi.id
+        WHERE n.deleted_at IS NULL
+        GROUP BY COALESCE(n.home_id, hi.home_id)
+      ) note_stats ON h.id = note_stats.home_id
       WHERE ho.user_id = ?
       ORDER BY h.updated_at DESC
     """
@@ -214,7 +224,8 @@ class HomeRepository()(implicit ec: ExecutionContext) {
       userRole = rs.getString("role"),
       totalItems = rs.getInt("total_items"),
       totalPhotos = rs.getInt("total_photos"),
-      emergencyItems = rs.getInt("emergency_items")
+      emergencyItems = rs.getInt("emergency_items"),
+      totalNotes = rs.getInt("total_notes")
     )
   }
 }

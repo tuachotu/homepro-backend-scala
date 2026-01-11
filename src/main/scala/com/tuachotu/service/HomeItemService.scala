@@ -128,7 +128,8 @@ class HomeItemService(
           data = parseJsonbData(item.data),
           created_at = item.createdAt.format(dateFormatter),
           photo_count = item.photoCount,
-          primary_photo_url = primaryPhotoUrl
+          primary_photo_url = primaryPhotoUrl,
+          note_count = item.noteCount
         )
       }
     }

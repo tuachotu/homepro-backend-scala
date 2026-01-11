@@ -34,6 +34,7 @@ info:
     - ✅ Delete operations with cascading deletes and proper authorization
     - ✅ S3 cleanup for deleted photos and comprehensive data removal
     - ✅ Photo primary status management with automatic constraint enforcement
+    - ✅ Notes API for observations, todos, and questions on homes and home items
     
     ## CORS Configuration
     All endpoints support CORS (Cross-Origin Resource Sharing) to enable requests from web browsers.
@@ -122,9 +123,9 @@ paths:
         - Homes
       summary: Get homes for a user
       description: |
-        Retrieves all homes that the authenticated user has access to, 
-        along with comprehensive statistics including item counts, photo counts, 
-        and emergency item counts.
+        Retrieves all homes that the authenticated user has access to,
+        along with comprehensive statistics including item counts, photo counts,
+        note counts, and emergency item counts.
       security:
         - FirebaseAuth: []
       parameters:
@@ -156,6 +157,7 @@ paths:
                     total_items: 25
                     total_photos: 48
                     emergency_items: 3
+                    total_notes: 12
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -344,7 +346,7 @@ paths:
       summary: Get items for a specific home
       description: |
         Retrieves all items within a home with optional filtering by type and emergency status.
-        Includes photo counts and pre-signed URLs for primary photos.
+        Includes photo counts, note counts, and pre-signed URLs for primary photos.
         Supports pagination for large inventories.
       security:
         - FirebaseAuth: []
@@ -411,6 +413,7 @@ paths:
                   created_at: "2025-08-11T12:00:00"
                   photo_count: 1
                   primary_photo_url: "https://homepro-photos.s3.amazonaws.com/presigned-url"
+                  note_count: 5
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -1038,6 +1041,437 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  # Notes APIs
+  /api/notes:
+    get:
+      tags:
+        - Notes
+      summary: Get notes for a home or home item
+      description: |
+        Retrieves all notes for a specific home or home item.
+
+        **Requirements:**
+        - Exactly one of `homeId` or `homeItemId` must be provided
+        - User must be a homeowner OR have expert role
+        - Results ordered by created_at DESC
+        - Soft-deleted notes are excluded
+      security:
+        - FirebaseAuth: []
+      parameters:
+        - name: homeId
+          in: query
+          required: false
+          description: UUID of the home (mutually exclusive with homeItemId)
+          schema:
+            type: string
+            format: uuid
+          example: "ace55e40-b56d-43c1-b738-5eee8f1ccdf1"
+        - name: homeItemId
+          in: query
+          required: false
+          description: UUID of the home item (mutually exclusive with homeId)
+          schema:
+            type: string
+            format: uuid
+          example: "d26d981c-0c6e-41ae-b9f9-8a9ad6e66c94"
+      responses:
+        '200':
+          description: List of notes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/NoteResponse'
+              example:
+                - id: "note-uuid-1"
+                  homeId: "ace55e40-b56d-43c1-b738-5eee8f1ccdf1"
+                  homeItemId: null
+                  title: "Kitchen Remodel"
+                  body: "Consider replacing the countertops with quartz"
+                  noteType: "observation"
+                  isPinned: true
+                  authorId: "user-uuid-1"
+                  createdBy: "user-uuid-1"
+                  createdAt: "2025-08-11T10:30:00"
+                  updatedBy: null
+                  updatedAt: "2025-08-11T10:30:00"
+        '400':
+          description: Bad request - Missing or invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing_params:
+                  summary: Missing required parameters
+                  value:
+                    error: "Either homeId or homeItemId must be provided"
+                both_params:
+                  summary: Both parameters provided
+                  value:
+                    error: "Provide exactly one of homeId or homeItemId, not both"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      tags:
+        - Notes
+      summary: Create a new note
+      description: |
+        Creates a new note for a home or home item.
+
+        **Authorization:**
+        - User must be a homeowner of the home OR have expert role
+
+        **Requirements:**
+        - Exactly one of `homeId` or `homeItemId` must be provided
+        - `body` is required
+        - `isPinned` is always false at creation
+        - `authorId` and `createdBy` are set to authenticated user
+
+        **Note Types:**
+        - `general` - General notes and comments
+        - `observation` - Observations and findings
+        - `todo` - Action items and tasks
+        - `question` - Questions that need answers
+      security:
+        - FirebaseAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateNoteRequest'
+            examples:
+              home_observation:
+                summary: Observation note for home
+                value:
+                  homeId: "ace55e40-b56d-43c1-b738-5eee8f1ccdf1"
+                  title: "Kitchen Remodel Ideas"
+                  body: "Consider replacing the countertops with quartz. Also check cabinet hinges."
+                  noteType: "observation"
+              home_item_todo:
+                summary: Todo note for home item
+                value:
+                  homeItemId: "d26d981c-0c6e-41ae-b9f9-8a9ad6e66c94"
+                  title: "Replace filter"
+                  body: "HVAC filter needs replacement - buy 16x20x1 MERV 11"
+                  noteType: "todo"
+              question_note:
+                summary: Question about repair
+                value:
+                  homeItemId: "d26d981c-0c6e-41ae-b9f9-8a9ad6e66c94"
+                  body: "Should we repair or replace this water heater?"
+                  noteType: "question"
+      responses:
+        '201':
+          description: Note created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoteResponse'
+              example:
+                id: "note-uuid-generated"
+                homeId: "ace55e40-b56d-43c1-b738-5eee8f1ccdf1"
+                homeItemId: null
+                title: "Kitchen Remodel Ideas"
+                body: "Consider replacing the countertops with quartz"
+                noteType: "observation"
+                isPinned: false
+                authorId: "user-uuid-1"
+                createdBy: "user-uuid-1"
+                createdAt: "2025-08-11T15:30:00"
+                updatedBy: null
+                updatedAt: "2025-08-11T15:30:00"
+        '400':
+          description: Bad request - Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing_context:
+                  summary: Missing homeId and homeItemId
+                  value:
+                    error: "Either homeId or homeItemId must be provided"
+                both_contexts:
+                  summary: Both homeId and homeItemId provided
+                  value:
+                    error: "Provide exactly one of homeId or homeItemId, not both"
+                invalid_note_type:
+                  summary: Invalid note type
+                  value:
+                    error: "Invalid note type: invalid_type"
+                home_item_not_found:
+                  summary: Home item not found
+                  value:
+                    error: "Home item not found"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/notes/{noteId}:
+    put:
+      tags:
+        - Notes
+      summary: Update a note
+      description: |
+        Updates an existing note's title, body, and/or noteType.
+
+        **Authorization:**
+        - User must be a homeowner of the home OR have expert role
+
+        **Allowed Updates:**
+        - `title` (optional)
+        - `body` (optional)
+        - `noteType` (optional)
+
+        **Forbidden Updates:**
+        - Cannot change `homeId` or `homeItemId`
+        - Cannot change `authorId` or `createdBy`
+        - Cannot modify `isPinned` (use pin/unpin endpoints)
+      security:
+        - FirebaseAuth: []
+      parameters:
+        - name: noteId
+          in: path
+          required: true
+          description: UUID of the note to update
+          schema:
+            type: string
+            format: uuid
+          example: "note-uuid-1"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateNoteRequest'
+            examples:
+              update_body:
+                summary: Update only the body
+                value:
+                  body: "Updated note content with more details"
+              update_all:
+                summary: Update all fields
+                value:
+                  title: "Updated Title"
+                  body: "Updated body content"
+                  noteType: "todo"
+      responses:
+        '200':
+          description: Note updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoteResponse'
+              example:
+                id: "note-uuid-1"
+                homeId: "ace55e40-b56d-43c1-b738-5eee8f1ccdf1"
+                homeItemId: null
+                title: "Updated Title"
+                body: "Updated body content"
+                noteType: "todo"
+                isPinned: false
+                authorId: "user-uuid-1"
+                createdBy: "user-uuid-1"
+                createdAt: "2025-08-11T10:30:00"
+                updatedBy: "user-uuid-2"
+                updatedAt: "2025-08-11T16:45:00"
+        '400':
+          description: Bad request - Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Invalid note type: invalid_type"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Note not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Note with ID note-uuid-1 not found"
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      tags:
+        - Notes
+      summary: Soft delete a note
+      description: |
+        Soft deletes a note by setting the deleted_at timestamp.
+
+        **Authorization:**
+        - User must be a homeowner of the home OR have expert role
+
+        **Behavior:**
+        - Sets `deleted_at` to current timestamp
+        - Deleted notes will not appear in any read APIs
+        - Operation is irreversible (no undelete functionality)
+      security:
+        - FirebaseAuth: []
+      parameters:
+        - name: noteId
+          in: path
+          required: true
+          description: UUID of the note to delete
+          schema:
+            type: string
+            format: uuid
+          example: "note-uuid-1"
+      responses:
+        '204':
+          description: Note deleted successfully (no content)
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Note not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Note with ID note-uuid-1 not found"
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/notes/{noteId}/pin:
+    post:
+      tags:
+        - Notes
+      summary: Pin a note
+      description: |
+        Marks a note as pinned. Multiple notes can be pinned per home/home item.
+
+        **Authorization:**
+        - User must be a homeowner of the home OR have expert role
+
+        **Idempotency:**
+        - Re-pinning an already pinned note is a no-op
+        - Safe to retry
+      security:
+        - FirebaseAuth: []
+      parameters:
+        - name: noteId
+          in: path
+          required: true
+          description: UUID of the note to pin
+          schema:
+            type: string
+            format: uuid
+          example: "note-uuid-1"
+      responses:
+        '200':
+          description: Note pinned successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoteResponse'
+              example:
+                id: "note-uuid-1"
+                homeId: "ace55e40-b56d-43c1-b738-5eee8f1ccdf1"
+                homeItemId: null
+                title: "Important Note"
+                body: "This is an important note"
+                noteType: "general"
+                isPinned: true
+                authorId: "user-uuid-1"
+                createdBy: "user-uuid-1"
+                createdAt: "2025-08-11T10:30:00"
+                updatedBy: "user-uuid-2"
+                updatedAt: "2025-08-11T17:00:00"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Note not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Note with ID note-uuid-1 not found"
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/notes/{noteId}/unpin:
+    post:
+      tags:
+        - Notes
+      summary: Unpin a note
+      description: |
+        Removes the pinned status from a note.
+
+        **Authorization:**
+        - User must be a homeowner of the home OR have expert role
+
+        **Idempotency:**
+        - Re-unpinning an already unpinned note is a no-op
+        - Safe to retry
+      security:
+        - FirebaseAuth: []
+      parameters:
+        - name: noteId
+          in: path
+          required: true
+          description: UUID of the note to unpin
+          schema:
+            type: string
+            format: uuid
+          example: "note-uuid-1"
+      responses:
+        '200':
+          description: Note unpinned successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoteResponse'
+              example:
+                id: "note-uuid-1"
+                homeId: "ace55e40-b56d-43c1-b738-5eee8f1ccdf1"
+                homeItemId: null
+                title: "Important Note"
+                body: "This is an important note"
+                noteType: "general"
+                isPinned: false
+                authorId: "user-uuid-1"
+                createdBy: "user-uuid-1"
+                createdAt: "2025-08-11T10:30:00"
+                updatedBy: "user-uuid-2"
+                updatedAt: "2025-08-11T17:15:00"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Note not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Note with ID note-uuid-1 not found"
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   # Support Request APIs
   /api/support-requests:
     get:
@@ -1198,6 +1632,7 @@ components:
         - total_items
         - total_photos
         - emergency_items
+        - total_notes
       properties:
         total_items:
           type: integer
@@ -1214,6 +1649,11 @@ components:
           minimum: 0
           description: Number of items marked as emergency
           example: 3
+        total_notes:
+          type: integer
+          minimum: 0
+          description: Total number of notes for this home (including notes on home and all home items, excluding soft-deleted notes)
+          example: 12
 
     AddHomeRequest:
       type: object
@@ -1361,6 +1801,7 @@ components:
         - data
         - created_at
         - photo_count
+        - note_count
       properties:
         id:
           type: string
@@ -1403,6 +1844,11 @@ components:
           nullable: true
           description: Pre-signed S3 URL for primary photo (valid for 1 hour)
           example: "https://s3.amazonaws.com/homepro-photos/signed-url"
+        note_count:
+          type: integer
+          minimum: 0
+          description: Number of notes associated with this item (excluding soft-deleted notes)
+          example: 5
 
     HomeItemType:
       type: string
@@ -1604,6 +2050,158 @@ components:
           type: string
           description: Success confirmation message
           example: "Photo primary status updated successfully"
+
+    # Notes Schemas
+    NoteResponse:
+      type: object
+      required:
+        - id
+        - body
+        - noteType
+        - isPinned
+        - authorId
+        - createdBy
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique note identifier
+          example: "note-uuid-1"
+        homeId:
+          type: string
+          format: uuid
+          nullable: true
+          description: UUID of the home this note belongs to (null if associated with home item)
+          example: "ace55e40-b56d-43c1-b738-5eee8f1ccdf1"
+        homeItemId:
+          type: string
+          format: uuid
+          nullable: true
+          description: UUID of the home item this note belongs to (null if associated with home)
+          example: "d26d981c-0c6e-41ae-b9f9-8a9ad6e66c94"
+        title:
+          type: string
+          nullable: true
+          description: Optional title for the note
+          example: "Kitchen Remodel Ideas"
+        body:
+          type: string
+          description: Main content of the note
+          example: "Consider replacing the countertops with quartz"
+        noteType:
+          $ref: '#/components/schemas/NoteType'
+        isPinned:
+          type: boolean
+          description: Whether this note is pinned
+          example: false
+        authorId:
+          type: string
+          format: uuid
+          description: UUID of the user who authored the note
+          example: "user-uuid-1"
+        createdBy:
+          type: string
+          format: uuid
+          description: UUID of the user who created the note record
+          example: "user-uuid-1"
+        createdAt:
+          type: string
+          format: date-time
+          description: Note creation timestamp (ISO 8601)
+          example: "2025-08-11T10:30:00"
+        updatedBy:
+          type: string
+          format: uuid
+          nullable: true
+          description: UUID of the user who last updated the note
+          example: "user-uuid-2"
+        updatedAt:
+          type: string
+          format: date-time
+          description: Last update timestamp (ISO 8601)
+          example: "2025-08-11T16:45:00"
+
+    CreateNoteRequest:
+      type: object
+      required:
+        - body
+      properties:
+        homeId:
+          type: string
+          format: uuid
+          nullable: true
+          description: UUID of the home (mutually exclusive with homeItemId)
+          example: "ace55e40-b56d-43c1-b738-5eee8f1ccdf1"
+        homeItemId:
+          type: string
+          format: uuid
+          nullable: true
+          description: UUID of the home item (mutually exclusive with homeId)
+          example: "d26d981c-0c6e-41ae-b9f9-8a9ad6e66c94"
+        title:
+          type: string
+          nullable: true
+          maxLength: 255
+          description: Optional title for the note
+          example: "Kitchen Remodel Ideas"
+        body:
+          type: string
+          minLength: 1
+          description: Main content of the note (required)
+          example: "Consider replacing the countertops with quartz"
+        noteType:
+          type: string
+          default: "general"
+          description: Type of note (defaults to 'general' if not provided)
+          enum:
+            - general
+            - observation
+            - todo
+            - question
+          example: "observation"
+
+    UpdateNoteRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          nullable: true
+          maxLength: 255
+          description: Updated title for the note
+          example: "Updated Title"
+        body:
+          type: string
+          nullable: true
+          minLength: 1
+          description: Updated content of the note
+          example: "Updated body content"
+        noteType:
+          type: string
+          nullable: true
+          description: Updated note type
+          enum:
+            - general
+            - observation
+            - todo
+            - question
+          example: "todo"
+
+    NoteType:
+      type: string
+      enum:
+        - general
+        - observation
+        - todo
+        - question
+      description: |
+        Type of note:
+        - `general` - General notes and comments
+        - `observation` - Observations and findings
+        - `todo` - Action items and tasks
+        - `question` - Questions that need answers
+      example: "observation"
 
     # Support Request Schemas
     CreateSupportRequest:
@@ -1915,6 +2513,11 @@ tags:
       Photo management with S3 integration, CORS support, and deletion capabilities.
       File uploads via multipart/form-data with automatic preflight handling.
       Delete operations remove photos from both database and S3 storage.
+  - name: Notes
+    description: |
+      Note management for homes and home items. Supports observations, todos, questions, and general notes.
+      Features include pinning, soft deletion, and role-based authorization (homeowners and experts).
+      All operations support Firebase authentication and comprehensive audit trails.
   - name: Support Requests
     description: Service request lifecycle management
 
