@@ -5,6 +5,7 @@ import com.tuachotu.controller.SupportRequestController
 import com.tuachotu.controller.PhotoController
 import com.tuachotu.controller.HomeController
 import com.tuachotu.controller.HomeItemController
+import com.tuachotu.controller.NoteController
 import com.tuachotu.repository.UserRepository
 import com.tuachotu.service.UserService
 import com.tuachotu.util.{ConfigUtil, FirebaseAuthHandler, LoggerUtil}
@@ -39,8 +40,9 @@ object HomeProMain {
     val photoController = new PhotoController()
     val homeController = new HomeController()
     val homeItemController = new HomeItemController()
+    val noteController = new NoteController()
     // Combine all user-related routes
-    val routes = userController.routes ~ supportRequestController.routes ~ photoController.routes ~ homeController.routes ~ homeItemController.routes
+    val routes = userController.routes ~ supportRequestController.routes ~ photoController.routes ~ homeController.routes ~ homeItemController.routes ~ noteController.routes
     Http().newServerAt("0.0.0.0", ConfigUtil.getInt("server.port", 2107)).bind(routes)
     Await.result(system.whenTerminated, Duration.Inf)
   }
