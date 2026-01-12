@@ -57,8 +57,15 @@ class UserController()(implicit ec: ExecutionContext) {
               firebaseId = claims.getOrElse("user_id", "").asInstanceOf[String]
               userOpt <- userService.findByFirebaseId(firebaseId)
               user <- userOpt match {
-                case Some(user) => Future.successful(user)
-                case None => Future.failed(new UserNotFoundException("User not found"))
+                case Some(user) =>
+                  logger.info("Existing user found", "userId", user.id.toString, "firebaseUid", firebaseId)
+                  Future.successful(user)
+                case None =>
+                  logger.info("New user detected, creating user", "firebaseUid", firebaseId)
+                  for {
+                    newUser <- userService.createFromFirebaseClaims(firebaseId, claims)
+                    _ <- userRoleService.assignDefaultRole(newUser.id)
+                  } yield newUser
               }
               roles <- userRoleService.getRoleNamesByUserId(user.id)
             } yield {
