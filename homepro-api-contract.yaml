@@ -721,40 +721,58 @@ paths:
     post:
       tags:
         - Photos
-      summary: Upload photo for home item
+      summary: Upload photo for home or home item
       description: |
-        Upload a photo and associate it with a specific home item.
-        
+        Upload a photo and associate it with either a home or a specific home item.
+
         **Upload Flow:**
         1. Client uploads photo via multipart/form-data with form field name `photo`
-        2. Photo is uploaded to S3 with context-based path: `{homeItemId}/{filename}`
-        3. Photo metadata is stored in database with `homeItemId` association only
+        2. Photo is uploaded to S3 with context-based path: `{homeId}/{filename}` or `{homeItemId}/{filename}`
+        3. Photo metadata is stored in database with either `homeId` or `homeItemId` association
         4. Returns presigned URL for immediate photo access
-        
+
+        **Requirements:**
+        - Exactly one of `homeId` or `homeItemId` must be provided (mutually exclusive)
+        - User must have access to the specified home/item
+
         **File Requirements:**
         - Form field name must be: `photo`
         - Supported formats: JPEG, PNG, GIF, WebP
         - Recommended max file size: 10MB (configurable on server)
-        
+
         **S3 Storage:**
         - Bucket: `homepro-photos` (configurable)
-        - Path: `{homeItemId}/{original-filename}`
+        - Home photos path: `{homeId}/{original-filename}`
+        - Home item photos path: `{homeItemId}/{original-filename}`
         - Database stores only filename (context-based architecture)
-        
+
         **Database Constraint:**
         - Photos must have exactly ONE of: home_id, home_item_id, or user_id set
+        - For home photos, only home_id is set
         - For home item photos, only home_item_id is set
+
+        **Use Cases:**
+        - **Home Photos:** Exterior shots, property photos, general home documentation
+        - **Home Item Photos:** Specific appliances, rooms, utility controls, etc.
       security:
         - FirebaseAuth: []
       parameters:
         - name: homeItemId
           in: query
-          required: true
-          description: UUID of the home item to associate photo with
+          required: false
+          description: UUID of the home item to associate photo with (mutually exclusive with homeId)
           schema:
             type: string
             format: uuid
           example: "d26d981c-0c6e-41ae-b9f9-8a9ad6e66c94"
+        - name: homeId
+          in: query
+          required: false
+          description: UUID of the home to associate photo with (mutually exclusive with homeItemId)
+          schema:
+            type: string
+            format: uuid
+          example: "ace55e40-b56d-43c1-b738-5eee8f1ccdf1"
       requestBody:
         required: true
         content:
@@ -784,15 +802,29 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PhotoUploadResponse'
-              example:
-                id: "photo-uuid-generated"
-                homeItemId: "d26d981c-0c6e-41ae-b9f9-8a9ad6e66c94"
-                fileName: "IMG_3372.JPG"
-                s3Key: "d26d981c-0c6e-41ae-b9f9-8a9ad6e66c94/IMG_3372.JPG"
-                contentType: "image/jpeg"
-                caption: null
-                message: "Photo uploaded successfully"
-                photoUrl: "https://homepro-photos.s3.amazonaws.com/d26d981c-0c6e-41ae-b9f9-8a9ad6e66c94/IMG_3372.JPG?presigned-params"
+              examples:
+                home_item_upload:
+                  summary: Home item photo upload
+                  value:
+                    id: "photo-uuid-generated"
+                    homeItemId: "d26d981c-0c6e-41ae-b9f9-8a9ad6e66c94"
+                    fileName: "IMG_3372.JPG"
+                    s3Key: "d26d981c-0c6e-41ae-b9f9-8a9ad6e66c94/IMG_3372.JPG"
+                    contentType: "image/jpeg"
+                    caption: null
+                    message: "Photo uploaded successfully"
+                    photoUrl: "https://homepro-photos.s3.amazonaws.com/d26d981c-0c6e-41ae-b9f9-8a9ad6e66c94/IMG_3372.JPG?presigned-params"
+                home_upload:
+                  summary: Home photo upload
+                  value:
+                    id: "photo-uuid-generated-2"
+                    homeItemId: ""
+                    fileName: "house-exterior.JPG"
+                    s3Key: "ace55e40-b56d-43c1-b738-5eee8f1ccdf1/house-exterior.JPG"
+                    contentType: "image/jpeg"
+                    caption: null
+                    message: "Photo uploaded successfully"
+                    photoUrl: "https://homepro-photos.s3.amazonaws.com/ace55e40-b56d-43c1-b738-5eee8f1ccdf1/house-exterior.JPG?presigned-params"
         '400':
           description: Bad request - Invalid input or missing file
           content:
@@ -800,14 +832,26 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
               examples:
+                missing_context:
+                  summary: Neither homeId nor homeItemId provided
+                  value:
+                    error: "Either homeItemId or homeId must be provided"
+                both_contexts:
+                  summary: Both homeId and homeItemId provided
+                  value:
+                    error: "Only one of homeItemId or homeId should be provided, not both"
                 missing_file:
                   summary: No photo file provided
                   value:
                     error: "No photo file found in request"
-                invalid_home_item:
-                  summary: Invalid home item ID
+                invalid_home_item_uuid:
+                  summary: Invalid home item UUID
                   value:
                     error: "Invalid homeItemId format. Must be a valid UUID"
+                invalid_home_uuid:
+                  summary: Invalid home UUID
+                  value:
+                    error: "Invalid homeId format. Must be a valid UUID"
                 db_constraint_error:
                   summary: Database constraint violation
                   value:
@@ -815,13 +859,20 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
-          description: Forbidden - User doesn't have access to this home item
+          description: Forbidden - User doesn't have access to this home or home item
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-              example:
-                error: "User does not have access to this home item"
+              examples:
+                home_access_denied:
+                  summary: No access to home
+                  value:
+                    error: "User does not have access to this home"
+                home_item_access_denied:
+                  summary: No access to home item
+                  value:
+                    error: "User does not have access to this home item"
         '500':
           description: Internal server error - S3 upload or database failure
           content:
@@ -1975,8 +2026,9 @@ components:
           example: "photo-uuid-generated"
         homeItemId:
           type: string
-          format: uuid
-          description: UUID of the home item this photo is associated with
+          description: |
+            UUID of the home item this photo is associated with.
+            Empty string ("") if photo is associated with a home instead.
           example: "d26d981c-0c6e-41ae-b9f9-8a9ad6e66c94"
         fileName:
           type: string
@@ -1984,7 +2036,9 @@ components:
           example: "IMG_3372.JPG"
         s3Key:
           type: string
-          description: Full S3 key path where the photo is stored
+          description: |
+            Full S3 key path where the photo is stored.
+            Format: {homeId}/{filename} for home photos or {homeItemId}/{filename} for home item photos
           example: "d26d981c-0c6e-41ae-b9f9-8a9ad6e66c94/IMG_3372.JPG"
         contentType:
           type: string
