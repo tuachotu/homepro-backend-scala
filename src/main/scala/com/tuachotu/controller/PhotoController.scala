@@ -129,75 +129,169 @@ class PhotoController()(implicit ec: ExecutionContext, mat: Materializer) {
         optionalHeaderValueByName("Authorization") {
           case Some(authHeader) if authHeader.startsWith("Bearer ") =>
             val token = authHeader.substring(7)
-            
-            parameters("homeItemId") { homeItemIdStr =>
-              
-              logger.info("POST /api/photos request received", 
-                "homeItemId", homeItemIdStr,
-                "hasAuthToken", "true")
-              
-              Try(UUID.fromString(homeItemIdStr)) match {
-                case Success(homeItemId) =>
-                  entity(as[Multipart.FormData]) { formData =>
-                    val result = for {
-                      // Validate Firebase token
-                      claims <- FirebaseAuthHandler.validateTokenAsync(token).flatMap {
-                        case Right(claims) => Future.successful(claims)
-                        case Left(_) => Future.failed(new UnauthorizedAccessException)
-                      }
-                      firebaseId = claims.getOrElse("user_id", "").asInstanceOf[String]
-                      
-                      // Get user from Firebase ID
-                      requestingUserOpt <- userService.findByFirebaseId(firebaseId)
-                      requestingUser <- requestingUserOpt match {
-                        case Some(user) => Future.successful(user)
-                        case None => Future.failed(new UserNotFoundException("User not found"))
-                      }
-                      
-                      // Process the photo upload
-                      uploadResult <- processPhotoUpload(formData, homeItemId, requestingUser.id)
-                    } yield uploadResult
 
-                    onComplete(result) {
-                      case Success(response) =>
-                        logger.info("POST /api/photos - Success response",
-                          "homeItemId", homeItemId.toString,
-                          "status", StatusCodes.Created.intValue)
-                        complete(HttpResponse(
-                          status = StatusCodes.Created,
-                          entity = HttpEntity(ContentTypes.`application/json`, response.toJson.compactPrint)
-                        ))
-                      case Failure(exception) =>
-                        val errorStatus = exception match {
-                          case _: UserNotFoundException => StatusCodes.NotFound
-                          case _: UnauthorizedAccessException => StatusCodes.Unauthorized
-                          case _: IllegalArgumentException => StatusCodes.BadRequest
-                          case _ => StatusCodes.InternalServerError
-                        }
-                        val errorMsg = exception.getMessage
-                        logger.error("POST /api/photos - Error response", 
-                          exception,
-                          "homeItemId", homeItemId.toString,
-                          "error", errorMsg,
-                          "status", errorStatus.intValue)
-                        complete(HttpResponse(
-                          status = errorStatus,
-                          entity = HttpEntity(ContentTypes.`application/json`, 
-                            s"""{\"error\": \"$errorMsg\"}""")
-                        ))
-                    }
-                  }
-                case Failure(_) =>
-                  val errorMsg = "Invalid homeItemId format. Must be a valid UUID"
-                  logger.error("POST /api/photos - Bad Request (Invalid UUID)",
-                    "homeItemIdStr", homeItemIdStr,
+            parameters("homeItemId".optional, "homeId".optional) { (homeItemIdOpt, homeIdOpt) =>
+
+              logger.info("POST /api/photos request received",
+                "homeItemId", homeItemIdOpt.getOrElse("not_provided"),
+                "homeId", homeIdOpt.getOrElse("not_provided"),
+                "hasAuthToken", "true")
+
+              // Validate that exactly one parameter is provided
+              (homeItemIdOpt, homeIdOpt) match {
+                case (None, None) =>
+                  val errorMsg = "Either homeItemId or homeId must be provided"
+                  logger.error("POST /api/photos - Bad Request (Missing context)",
                     "error", errorMsg,
                     "status", StatusCodes.BadRequest.intValue)
                   complete(HttpResponse(
                     status = StatusCodes.BadRequest,
-                    entity = HttpEntity(ContentTypes.`application/json`, 
+                    entity = HttpEntity(ContentTypes.`application/json`,
                       s"""{\"error\": \"$errorMsg\"}""")
                   ))
+
+                case (Some(_), Some(_)) =>
+                  val errorMsg = "Only one of homeItemId or homeId should be provided, not both"
+                  logger.error("POST /api/photos - Bad Request (Multiple contexts)",
+                    "error", errorMsg,
+                    "status", StatusCodes.BadRequest.intValue)
+                  complete(HttpResponse(
+                    status = StatusCodes.BadRequest,
+                    entity = HttpEntity(ContentTypes.`application/json`,
+                      s"""{\"error\": \"$errorMsg\"}""")
+                  ))
+
+                case (Some(homeItemIdStr), None) =>
+                  // Upload to home item
+                  Try(UUID.fromString(homeItemIdStr)) match {
+                    case Success(homeItemId) =>
+                      entity(as[Multipart.FormData]) { formData =>
+                        val result = for {
+                          // Validate Firebase token
+                          claims <- FirebaseAuthHandler.validateTokenAsync(token).flatMap {
+                            case Right(claims) => Future.successful(claims)
+                            case Left(_) => Future.failed(new UnauthorizedAccessException)
+                          }
+                          firebaseId = claims.getOrElse("user_id", "").asInstanceOf[String]
+
+                          // Get user from Firebase ID
+                          requestingUserOpt <- userService.findByFirebaseId(firebaseId)
+                          requestingUser <- requestingUserOpt match {
+                            case Some(user) => Future.successful(user)
+                            case None => Future.failed(new UserNotFoundException("User not found"))
+                          }
+
+                          // Process the photo upload for home item
+                          uploadResult <- processPhotoUpload(formData, Some(homeItemId), None, requestingUser.id)
+                        } yield uploadResult
+
+                        onComplete(result) {
+                          case Success(response) =>
+                            logger.info("POST /api/photos - Success response",
+                              "homeItemId", homeItemId.toString,
+                              "status", StatusCodes.Created.intValue)
+                            complete(HttpResponse(
+                              status = StatusCodes.Created,
+                              entity = HttpEntity(ContentTypes.`application/json`, response.toJson.compactPrint)
+                            ))
+                          case Failure(exception) =>
+                            val errorStatus = exception match {
+                              case _: UserNotFoundException => StatusCodes.NotFound
+                              case _: UnauthorizedAccessException => StatusCodes.Unauthorized
+                              case _: IllegalArgumentException => StatusCodes.BadRequest
+                              case _ => StatusCodes.InternalServerError
+                            }
+                            val errorMsg = exception.getMessage
+                            logger.error("POST /api/photos - Error response",
+                              exception,
+                              "homeItemId", homeItemId.toString,
+                              "error", errorMsg,
+                              "status", errorStatus.intValue)
+                            complete(HttpResponse(
+                              status = errorStatus,
+                              entity = HttpEntity(ContentTypes.`application/json`,
+                                s"""{\"error\": \"$errorMsg\"}""")
+                            ))
+                        }
+                      }
+                    case Failure(_) =>
+                      val errorMsg = "Invalid homeItemId format. Must be a valid UUID"
+                      logger.error("POST /api/photos - Bad Request (Invalid UUID)",
+                        "homeItemIdStr", homeItemIdStr,
+                        "error", errorMsg,
+                        "status", StatusCodes.BadRequest.intValue)
+                      complete(HttpResponse(
+                        status = StatusCodes.BadRequest,
+                        entity = HttpEntity(ContentTypes.`application/json`,
+                          s"""{\"error\": \"$errorMsg\"}""")
+                      ))
+                  }
+
+                case (None, Some(homeIdStr)) =>
+                  // Upload to home
+                  Try(UUID.fromString(homeIdStr)) match {
+                    case Success(homeId) =>
+                      entity(as[Multipart.FormData]) { formData =>
+                        val result = for {
+                          // Validate Firebase token
+                          claims <- FirebaseAuthHandler.validateTokenAsync(token).flatMap {
+                            case Right(claims) => Future.successful(claims)
+                            case Left(_) => Future.failed(new UnauthorizedAccessException)
+                          }
+                          firebaseId = claims.getOrElse("user_id", "").asInstanceOf[String]
+
+                          // Get user from Firebase ID
+                          requestingUserOpt <- userService.findByFirebaseId(firebaseId)
+                          requestingUser <- requestingUserOpt match {
+                            case Some(user) => Future.successful(user)
+                            case None => Future.failed(new UserNotFoundException("User not found"))
+                          }
+
+                          // Process the photo upload for home
+                          uploadResult <- processPhotoUpload(formData, None, Some(homeId), requestingUser.id)
+                        } yield uploadResult
+
+                        onComplete(result) {
+                          case Success(response) =>
+                            logger.info("POST /api/photos - Success response",
+                              "homeId", homeId.toString,
+                              "status", StatusCodes.Created.intValue)
+                            complete(HttpResponse(
+                              status = StatusCodes.Created,
+                              entity = HttpEntity(ContentTypes.`application/json`, response.toJson.compactPrint)
+                            ))
+                          case Failure(exception) =>
+                            val errorStatus = exception match {
+                              case _: UserNotFoundException => StatusCodes.NotFound
+                              case _: UnauthorizedAccessException => StatusCodes.Unauthorized
+                              case _: IllegalArgumentException => StatusCodes.BadRequest
+                              case _ => StatusCodes.InternalServerError
+                            }
+                            val errorMsg = exception.getMessage
+                            logger.error("POST /api/photos - Error response",
+                              exception,
+                              "homeId", homeId.toString,
+                              "error", errorMsg,
+                              "status", errorStatus.intValue)
+                            complete(HttpResponse(
+                              status = errorStatus,
+                              entity = HttpEntity(ContentTypes.`application/json`,
+                                s"""{\"error\": \"$errorMsg\"}""")
+                            ))
+                        }
+                      }
+                    case Failure(_) =>
+                      val errorMsg = "Invalid homeId format. Must be a valid UUID"
+                      logger.error("POST /api/photos - Bad Request (Invalid UUID)",
+                        "homeIdStr", homeIdStr,
+                        "error", errorMsg,
+                        "status", StatusCodes.BadRequest.intValue)
+                      complete(HttpResponse(
+                        status = StatusCodes.BadRequest,
+                        entity = HttpEntity(ContentTypes.`application/json`,
+                          s"""{\"error\": \"$errorMsg\"}""")
+                      ))
+                  }
               }
             }
             
@@ -245,16 +339,16 @@ class PhotoController()(implicit ec: ExecutionContext, mat: Materializer) {
     }
   }
 
-  private def processPhotoUpload(formData: Multipart.FormData, homeItemId: UUID, userId: UUID): Future[PhotoUploadResponse] = {
+  private def processPhotoUpload(formData: Multipart.FormData, homeItemIdOpt: Option[UUID], homeIdOpt: Option[UUID], userId: UUID): Future[PhotoUploadResponse] = {
     import akka.stream.scaladsl.Sink
-    
+
     formData.parts.mapAsync(1) { part =>
       part.name match {
         case "photo" =>
           // Extract file information
           val filename = part.filename.getOrElse("photo.jpg")
           val contentType = part.entity.contentType.mediaType.toString()
-          
+
           // Get the file data
           part.entity.dataBytes.runWith(Sink.fold(akka.util.ByteString.empty)(_ ++ _)).map { data =>
             Some((filename, contentType, data.toArray))
@@ -265,20 +359,29 @@ class PhotoController()(implicit ec: ExecutionContext, mat: Materializer) {
       }
     }.runWith(Sink.headOption).flatMap {
       case Some(Some((filename, contentType, data))) =>
-        // Upload to S3 first
-        val s3Key = s"$homeItemId/$filename"
-        
+        // Determine context for S3 key and database record
+        val (contextId, s3Key, dbHomeId, dbHomeItemId) = (homeItemIdOpt, homeIdOpt) match {
+          case (Some(homeItemId), None) =>
+            // Upload to home item context
+            (homeItemId.toString, s"$homeItemId/$filename", None, Some(homeItemId))
+          case (None, Some(homeId)) =>
+            // Upload to home context
+            (homeId.toString, s"$homeId/$filename", Some(homeId), None)
+          case _ =>
+            throw new IllegalArgumentException("Exactly one of homeItemId or homeId must be provided")
+        }
+
         for {
           // Upload to S3
           _ <- s3Service.uploadFile(s3Key, data, Some(contentType))
-          
+
           // Create photo record in database
           photoId = UUID.randomUUID()
           photo = com.tuachotu.model.db.Photo(
             id = photoId,
-            homeId = None, // Not set when linking to home item
-            homeItemId = Some(homeItemId), // Primary association
-            userId = None, // Don't set userId when homeItemId is set
+            homeId = dbHomeId, // Set when uploading to home
+            homeItemId = dbHomeItemId, // Set when uploading to home item
+            userId = None, // Don't set userId when homeId or homeItemId is set
             s3Key = filename, // Store just filename as per context-based architecture
             fileName = Some(filename),
             contentType = Some(contentType),
@@ -287,16 +390,16 @@ class PhotoController()(implicit ec: ExecutionContext, mat: Materializer) {
             createdBy = Some(userId),
             createdAt = java.time.LocalDateTime.now()
           )
-          
+
           // Save to database
           _ <- savePhotoToDatabase(photo)
-          
+
           // Generate presigned URL for response
-          photoUrl <- s3Service.generatePresignedUrlForContext(homeItemId.toString, filename)
-          
+          photoUrl <- s3Service.generatePresignedUrlForContext(contextId, filename)
+
         } yield PhotoUploadResponse(
           id = photoId.toString,
-          homeItemId = homeItemId.toString,
+          homeItemId = homeItemIdOpt.map(_.toString).getOrElse(""),
           fileName = filename,
           s3Key = s3Key,
           contentType = Some(contentType),
